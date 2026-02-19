@@ -10,6 +10,21 @@ End-to-end encrypted key-value storage for **NEAR Protocol** using **FastKV** ba
 
 Plaintext **never** leaves your device - all encryption happens client-side with AES-256-GCM.
 
+## Related Projects & Deployment
+
+This client works with the following infrastructure:
+
+| Project | Description |
+|---------|-------------|
+| **[key-manager](https://github.com/Kampouse/key-manager)** | OutLayer TEE Key Manager - Encrypted KV storage with CKD-based keys (Rust) |
+| **[fastkv-server](https://github.com/Kampouse/fastkv-server)** | FastKV API server for NEAR blockchain storage |
+| **[fastdata-indexer](https://github.com/Kampouse/fastdata-indexer)** | NEAR indexer for FastData/FastKV |
+
+To deploy your own infrastructure:
+1. Deploy `fastkv-server` for the storage API
+2. Deploy `key-manager` WASM to OutLayer for TEE key wrapping
+3. Use this client to interact with your deployment
+
 ## Features
 
 - 🔐 **Client-side AES-256-GCM encryption** - plaintext never leaves device
