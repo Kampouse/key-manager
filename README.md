@@ -144,6 +144,25 @@ See [examples/](./examples) for real-world use cases:
 | [wallet-signer](./examples/wallet-signer) | TEE wallet (keys never leave enclave) |
 | [fastkv-integration](./examples/fastkv-integration) | Encrypted key-value storage |
 
+## FastKV Integration
+
+FastKV provides encrypted storage endpoints using the Key Manager.
+
+**Quick start:**
+```bash
+# Encrypt
+curl -X POST https://fastkv.up.railway.app/v1/kv/encrypted/encrypt \
+  -H "X-Payment-Key: pk_..." \
+  -d '{"account_id": "alice.near", "value": "secret"}'
+
+# Decrypt
+curl -X POST https://fastkv.up.railway.app/v1/kv/encrypted/decrypt \
+  -H "X-Payment-Key: pk_..." \
+  -d '{"account_id": "alice.near", "ciphertext": "enc:AES256:..."}'
+```
+
+See [docs/FASTKV_INTEGRATION.md](./docs/FASTKV_INTEGRATION.md) for full documentation.
+
 ## Performance
 
 | Source | First Call | Cached |
