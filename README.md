@@ -25,113 +25,124 @@ near call outlayer.near request_execution '{
 }' --accountId user.near --networkId mainnet --deposit 0.05 --gas 300000000000000
 ```
 
+## Installation
+
+```bash
+npm install @kampouse/key-manager-client
+# or
+yarn add @kampouse/key-manager-client
+```
+
+## TypeScript Usage
+
+```typescript
+import { KeyManagerClient } from "@kampouse/key-manager-client";
+
+const client = new KeyManagerClient({
+  paymentKey: "pk_your_payment_key",
+});
+
+// Encrypt data
+const { encryptedValue, key_id } = await client.encrypt(
+  "alice.near/private",
+  "alice.near",
+  "secret data"
+);
+
+// Decrypt data
+const { plaintext } = await client.decrypt(
+  "alice.near/private",
+  "alice.near",
+  ciphertextB64
+);
+
+// Batch operations (faster)
+const { encryptedValues } = await client.batchEncrypt(
+  "alice.near/data",
+  "alice.near",
+  {
+    email: "alice@example.com",
+    phone: "+1-555-1234",
+  }
+);
+```
+
 ## Actions
 
 ### `get_key`
 Get encryption key for a group.
 
-```json
-{
-  "action": "get_key",
-  "group_id": "alice.near/private",
-  "account_id": "alice.near"
-}
-```
-
-Response:
-```json
-{
-  "key_b64": "YHOrTiRy4UU44gEOrx3Vw+/ap0KtXIsRVEW1IHcBvBA=",
-  "key_id": "01560100ddd39635",
-  "group_id": "alice.near/private",
-  "attestation_hash": "1fd1d0de5c30c2a274ec3f0f4ba3ed90"
-}
+```typescript
+const { key_b64, key_id, attestation_hash } = await client.getKey(
+  "alice.near/private",
+  "alice.near"
+);
 ```
 
 ### `encrypt`
 Encrypt data with group key (AES-256-GCM).
 
-```json
-{
-  "action": "encrypt",
-  "group_id": "alice.near/private",
-  "account_id": "alice.near",
-  "plaintext_b64": "SGVsbG8gV29ybGQh"
-}
+```typescript
+const { ciphertext_b64, key_id, encryptedValue } = await client.encrypt(
+  "alice.near/private",
+  "alice.near",
+  "secret data"
+);
+// encryptedValue = "enc:AES256:key_id:ciphertext_b64"
 ```
 
 ### `decrypt`
 Decrypt data with group key.
 
-```json
-{
-  "action": "decrypt",
-  "group_id": "alice.near/private",
-  "account_id": "alice.near",
-  "ciphertext_b64": "..."
-}
-```
-
-Response includes both base64 and UTF-8:
-```json
-{
-  "plaintext_b64": "SGVsbG8gV29ybGQh",
-  "plaintext_utf8": "Hello World!",
-  "key_id": "01560100ddd39635"
-}
+```typescript
+const { plaintext, plaintext_utf8 } = await client.decrypt(
+  "alice.near/private",
+  "alice.near",
+  ciphertextB64
+);
+// plaintext_utf8 = "secret data" (if valid UTF-8)
 ```
 
 ### `batch_encrypt`
-Encrypt multiple items in one call (faster for bulk operations).
+Encrypt multiple items in one call.
 
-```json
-{
-  "action": "batch_encrypt",
-  "group_id": "alice.near/data",
-  "account_id": "alice.near",
-  "items": [
-    {"key": "name", "plaintext_b64": "SmVhbg=="},
-    {"key": "email", "plaintext_b64": "dGVzdEB0ZXN0LmNvbQ=="}
-  ]
-}
-```
-
-Response:
-```json
-{
-  "key_id": "324a5a19816f3dcf",
-  "items": [
-    {"key": "name", "ciphertext_b64": "...", "error": null},
-    {"key": "email", "ciphertext_b64": "...", "error": null}
-  ]
-}
+```typescript
+const { encryptedValues, key_id } = await client.batchEncrypt(
+  "alice.near/data",
+  "alice.near",
+  {
+    name: "Alice",
+    email: "alice@example.com",
+    phone: "+1-555-1234",
+  }
+);
 ```
 
 ### `batch_decrypt`
 Decrypt multiple items in one call.
 
-```json
-{
-  "action": "batch_decrypt",
-  "group_id": "alice.near/data",
-  "account_id": "alice.near",
-  "items": [
-    {"key": "name", "ciphertext_b64": "..."},
-    {"key": "email", "ciphertext_b64": "..."}
+```typescript
+const { plaintexts } = await client.batchDecrypt(
+  "alice.near/data",
+  "alice.near",
+  [
+    { key: "name", ciphertextB64: "..." },
+    { key: "email", ciphertextB64: "..." },
   ]
-}
+);
+// plaintexts = { name: "Alice", email: "alice@example.com" }
 ```
 
-### `verify_membership`
-Check if account has access to a group.
+## Examples
 
-```json
-{
-  "action": "verify_membership",
-  "group_id": "alice.near/private",
-  "account_id": "bob.near"
-}
-```
+See [examples/](./examples) for real-world use cases:
+
+| Example | Description |
+|---------|-------------|
+| [profile-secrets](./examples/profile-secrets) | Encrypted user profiles (GDPR-friendly) |
+| [shared-vault](./examples/shared-vault) | Team secrets with group access |
+| [wallet-signer](./examples/wallet-signer) | TEE wallet (keys never leave enclave) |
+| [fastkv-integration](./examples/fastkv-integration) | Encrypted key-value storage |
 
 ## Performance
 
@@ -140,7 +151,7 @@ Check if account has access to a group.
 | GitHub | ~30s | ~0.7s |
 | **WasmUrl** | ~1.2s | **~0.9s** |
 
-**Cost:** ~0.001 NEAR per cached call (~$0.005)
+**Cost:** ~$0.005 per cached call
 
 ## Test Locally
 
@@ -159,7 +170,7 @@ echo '{"action":"get_key","group_id":"test.near/data","account_id":"test.near"}'
 
 ## Encrypted Value Format
 
-For integration with FastKV or other storage:
+For integration with storage backends:
 
 ```
 enc:AES256:<key_id>:<ciphertext_base64>
@@ -169,6 +180,10 @@ Example:
 ```
 enc:AES256:01560100ddd39635:hM60OnrQ6W2yUKX0QvTCo8iSz2f4g3tElMzA5Fj93ig4
 ```
+
+## API Reference
+
+See [types.ts](./examples/types.ts) for full type definitions.
 
 ## License
 

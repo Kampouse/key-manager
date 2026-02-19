@@ -2,14 +2,50 @@
 
 Real-world integration patterns for the OutLayer TEE Key Manager.
 
+## TypeScript Clients
+
+All examples include fully-typed TypeScript clients.
+
+### Base Client
+
+```typescript
+import { KeyManagerClient } from "../key-manager-client";
+
+const client = new KeyManagerClient({
+  paymentKey: "pk_your_payment_key",
+});
+```
+
 ## Use Cases
 
 | Example | Description | When to Use |
 |---------|-------------|-------------|
-| [profile-secrets](./profile-secrets/) | Encrypted user profiles | Social apps, GDPR compliance |
-| [shared-vault](./shared-vault/) | Team secrets management | CI/CD, project secrets |
-| [wallet-signer](./wallet-signer/) | TEE wallet signer | Crypto wallets, key management |
-| [fastkv-integration](./fastkv-integration/) | FastKV storage client | Encrypted key-value store |
+| [profile-secrets](./profile-secrets) | Encrypted user profiles | Social apps, GDPR compliance |
+| [shared-vault](./shared-vault) | Team secrets management | CI/CD, project secrets |
+| [wallet-signer](./wallet-signer) | TEE wallet signer | Crypto wallets, key management |
+| [fastkv-integration](./fastkv-integration) | FastKV storage client | Encrypted key-value store |
+
+## Files
+
+```
+examples/
+├── types.ts                    # Shared type definitions
+├── key-manager-client.ts       # Base client with all actions
+├── profile-secrets/
+│   ├── profile-client.ts       # Encrypted profiles client
+│   ├── client.js               # JavaScript version
+│   ├── api-server.js           # Blind API server
+│   └── schema.json             # Data model
+├── shared-vault/
+│   ├── vault-client.ts         # Team vault client
+│   └── vault-manager.js        # JavaScript version
+├── fastkv-integration/
+│   ├── kv-client.ts            # KV storage client
+│   └── kv-client.js            # JavaScript version
+└── wallet-signer/
+    ├── wallet-client.ts        # Wallet signer client
+    └── wallet-client.js        # JavaScript version
+```
 
 ## Quick Reference
 
@@ -19,30 +55,30 @@ enc:AES256:<key_id>:<ciphertext_base64>
 ```
 
 ### Key Manager API
-```javascript
+```typescript
 // Single operations
-{ action: "get_key", group_id, account_id }
-{ action: "encrypt", group_id, account_id, plaintext_b64 }
-{ action: "decrypt", group_id, account_id, ciphertext_b64 }
+await client.getKey(groupId, accountId);
+await client.encrypt(groupId, accountId, plaintext);
+await client.decrypt(groupId, accountId, ciphertextB64);
 
 // Batch operations (faster)
-{ action: "batch_encrypt", group_id, account_id, items: [{key, plaintext_b64}, ...] }
-{ action: "batch_decrypt", group_id, account_id, items: [{key, ciphertext_b64}, ...] }
+await client.batchEncrypt(groupId, accountId, { key1: "value1", key2: "value2" });
+await client.batchDecrypt(groupId, accountId, [{ key: "key1", ciphertextB64: "..." }]);
 ```
 
 ### Cost Optimization
-```javascript
+```typescript
 // ❌ Bad: 3 separate calls
-await encrypt("field1");
-await encrypt("field2");
-await encrypt("field3");
+await client.encrypt(groupId, accountId, "value1");
+await client.encrypt(groupId, accountId, "value2");
+await client.encrypt(groupId, accountId, "value3");
 
 // ✅ Good: 1 batch call
-await batch_encrypt([
-  { key: "field1", plaintext_b64: "..." },
-  { key: "field2", plaintext_b64: "..." },
-  { key: "field3", plaintext_b64: "..." }
-]);
+await client.batchEncrypt(groupId, accountId, {
+  key1: "value1",
+  key2: "value2",
+  key3: "value3",
+});
 ```
 
 ## Performance
@@ -53,3 +89,22 @@ await batch_encrypt([
 | WasmUrl | ~1.2s | ~0.9s |
 
 **Cost:** ~$0.005 per cached call
+
+## Types
+
+See [types.ts](./types.ts) for full type definitions:
+
+```typescript
+// Request types
+interface GetKeyRequest { action: "get_key"; group_id: string; account_id: string; }
+interface EncryptRequest { action: "encrypt"; group_id: string; account_id: string; plaintext_b64: string; }
+interface BatchEncryptRequest { action: "batch_encrypt"; items: EncryptItem[]; }
+
+// Response types
+interface KeyResponse { key_b64: string; key_id: string; attestation_hash: string; }
+interface EncryptResponse { ciphertext_b64: string; key_id: string; }
+interface BatchEncryptResponse { key_id: string; items: BatchEncryptItemResult[]; }
+
+// Encrypted value type (branded)
+type EncryptedValueString = `enc:AES256:${string}:${string}`;
+```
