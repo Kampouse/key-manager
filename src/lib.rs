@@ -39,6 +39,28 @@ pub enum Request {
         group_id: String,
         account_id: String,
     },
+    BatchEncrypt {
+        group_id: String,
+        account_id: String,
+        items: Vec<EncryptItem>,
+    },
+    BatchDecrypt {
+        group_id: String,
+        account_id: String,
+        items: Vec<DecryptItem>,
+    },
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct EncryptItem {
+    pub key: String,
+    pub plaintext_b64: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DecryptItem {
+    pub key: String,
+    pub ciphertext_b64: String,
 }
 
 /// Response types
@@ -68,6 +90,33 @@ pub struct MembershipResponse {
     pub is_member: bool,
     pub group_id: String,
     pub account_id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BatchEncryptResponse {
+    pub key_id: String,
+    pub items: Vec<BatchEncryptItemResult>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BatchEncryptItemResult {
+    pub key: String,
+    pub ciphertext_b64: String,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BatchDecryptResponse {
+    pub key_id: String,
+    pub items: Vec<BatchDecryptItemResult>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BatchDecryptItemResult {
+    pub key: String,
+    pub plaintext_b64: String,
+    pub plaintext_utf8: Option<String>,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -184,6 +233,16 @@ pub fn execute(input: &str) -> String {
                 group_id,
                 account_id,
             } => handle_verify_membership(&group_id, &account_id),
+            Request::BatchEncrypt {
+                group_id,
+                account_id,
+                items,
+            } => handle_batch_encrypt(&group_id, &account_id, &items),
+            Request::BatchDecrypt {
+                group_id,
+                account_id,
+                items,
+            } => handle_batch_decrypt(&group_id, &account_id, &items),
         },
         Err(e) => error_response(&format!("Invalid request: {}", e), 400),
     }
@@ -272,6 +331,87 @@ fn handle_verify_membership(group_id: &str, account_id: &str) -> String {
         account_id: account_id.to_string(),
     };
 
+    serde_json::to_string(&response).unwrap_or_else(|e| error_response(&e.to_string(), 500))
+}
+
+fn handle_batch_encrypt(group_id: &str, account_id: &str, items: &[EncryptItem]) -> String {
+    if !check_membership(group_id, account_id) {
+        return error_response("Not a group member", 403);
+    }
+
+    let key = derive_group_key(CKD_MASTER_SEED, group_id);
+    let key_id = key_id_for_group(group_id);
+
+    let results: Vec<BatchEncryptItemResult> = items
+        .iter()
+        .map(|item| {
+            match BASE64.decode(&item.plaintext_b64) {
+                Ok(plaintext) => match encrypt(&plaintext, &key) {
+                    Ok(ciphertext) => BatchEncryptItemResult {
+                        key: item.key.clone(),
+                        ciphertext_b64: BASE64.encode(&ciphertext),
+                        error: None,
+                    },
+                    Err(e) => BatchEncryptItemResult {
+                        key: item.key.clone(),
+                        ciphertext_b64: String::new(),
+                        error: Some(e),
+                    },
+                },
+                Err(e) => BatchEncryptItemResult {
+                    key: item.key.clone(),
+                    ciphertext_b64: String::new(),
+                    error: Some(format!("Invalid base64: {}", e)),
+                },
+            }
+        })
+        .collect();
+
+    let response = BatchEncryptResponse { key_id, items: results };
+    serde_json::to_string(&response).unwrap_or_else(|e| error_response(&e.to_string(), 500))
+}
+
+fn handle_batch_decrypt(group_id: &str, account_id: &str, items: &[DecryptItem]) -> String {
+    if !check_membership(group_id, account_id) {
+        return error_response("Not a group member", 403);
+    }
+
+    let key = derive_group_key(CKD_MASTER_SEED, group_id);
+    let key_id = key_id_for_group(group_id);
+
+    let results: Vec<BatchDecryptItemResult> = items
+        .iter()
+        .map(|item| {
+            match BASE64.decode(&item.ciphertext_b64) {
+                Ok(ciphertext) => match decrypt(&ciphertext, &key) {
+                    Ok(plaintext) => {
+                        let plaintext_b64 = BASE64.encode(&plaintext);
+                        let plaintext_utf8 = String::from_utf8(plaintext).ok();
+                        BatchDecryptItemResult {
+                            key: item.key.clone(),
+                            plaintext_b64,
+                            plaintext_utf8,
+                            error: None,
+                        }
+                    }
+                    Err(e) => BatchDecryptItemResult {
+                        key: item.key.clone(),
+                        plaintext_b64: String::new(),
+                        plaintext_utf8: None,
+                        error: Some(e),
+                    },
+                },
+                Err(e) => BatchDecryptItemResult {
+                    key: item.key.clone(),
+                    plaintext_b64: String::new(),
+                    plaintext_utf8: None,
+                    error: Some(format!("Invalid base64: {}", e)),
+                },
+            }
+        })
+        .collect();
+
+    let response = BatchDecryptResponse { key_id, items: results };
     serde_json::to_string(&response).unwrap_or_else(|e| error_response(&e.to_string(), 500))
 }
 
