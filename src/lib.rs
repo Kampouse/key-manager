@@ -59,6 +59,7 @@ pub struct EncryptResponse {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DecryptResponse {
     pub plaintext_b64: String,
+    pub plaintext_utf8: Option<String>,
     pub key_id: String,
 }
 
@@ -250,8 +251,12 @@ fn handle_decrypt(group_id: &str, account_id: &str, ciphertext_b64: &str) -> Str
         Err(e) => return error_response(&e, 500),
     };
 
+    let plaintext_b64 = BASE64.encode(&plaintext);
+    let plaintext_utf8 = String::from_utf8(plaintext.clone()).ok();
+
     let response = DecryptResponse {
-        plaintext_b64: BASE64.encode(&plaintext),
+        plaintext_b64,
+        plaintext_utf8,
         key_id: key_id_for_group(group_id),
     };
 
