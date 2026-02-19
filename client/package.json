@@ -1,0 +1,49 @@
+{
+  "name": "privatekv",
+  "version": "0.1.0",
+  "description": "Backend-agnostic end-to-end encrypted key-value storage where plaintext never leaves your device",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts --clean",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
+    "test": "vitest",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "encryption",
+    "key-value",
+    "e2ee",
+    "tee",
+    "storage",
+    "near",
+    "fastkv",
+    "aes-256-gcm"
+  ],
+  "author": "Kampouse",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Kampouse/key-manager.git",
+    "directory": "client"
+  },
+  "bugs": {
+    "url": "https://github.com/Kampouse/key-manager/issues"
+  },
+  "homepage": "https://github.com/Kampouse/key-manager#readme",
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "tsup": "^8.0.1",
+    "typescript": "^5.3.0",
+    "vitest": "^1.0.0"
+  }
+}

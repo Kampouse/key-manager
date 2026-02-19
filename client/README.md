@@ -1,8 +1,54 @@
-# PrivateKV + FastKV Client
+# PrivateKV
 
-End-to-end encrypted key-value storage where plaintext NEVER leaves your device.
+Backend-agnostic end-to-end encrypted key-value storage where plaintext **never** leaves your device.
 
-## How It Works
+## Features
+
+- 🔐 **Client-side AES-256-GCM encryption** - plaintext never leaves device
+- 🔌 **Pluggable storage backends** - FastKV, S3, IPFS, or any custom backend
+- 🔑 **Pluggable TEE backends** - OutLayer or custom TEE implementations
+- 🌐 **Universal** - Works in browser and Node.js
+- 📦 **Full TypeScript support** - Complete type definitions
+- 🧪 **Testable** - Mock adapters for easy testing
+
+## Installation
+
+```bash
+npm install privatekv
+```
+
+## Quick Start
+
+```typescript
+import { PrivateKV, FastKVAdapter, OutLayerAdapter } from 'privatekv';
+
+const kv = new PrivateKV({
+  accountId: 'your-account.near',
+  
+  // Storage backend
+  storage: new FastKVAdapter({
+    apiUrl: 'https://near.garden',
+    accountId: 'your-account.near',
+  }),
+  
+  // TEE backend (for key wrapping)
+  tee: new OutLayerAdapter({
+    signTransaction: async (tx) => {
+      // Sign with NEAR wallet or keypair
+      return wallet.signAndSendTransaction(tx);
+    },
+  }),
+});
+
+// Encrypt and store
+await kv.set('my-secret', 'hello world');
+
+// Retrieve and decrypt
+const plaintext = await kv.get('my-secret');
+console.log(plaintext); // "hello world"
+```
+
+## Architecture
 
 ```
 ┌─────────────────────────────────────────────┐
@@ -10,13 +56,13 @@ End-to-end encrypted key-value storage where plaintext NEVER leaves your device.
 │                                              │
 │  1. Generate ephemeral AES-256 key (local)   │
 │  2. Encrypt plaintext locally                │
-│  3. Wrap ephemeral key with TEE (OutLayer)   │
+│  3. Wrap ephemeral key with TEE              │
 │  4. Store: wrapped_key + ciphertext          │
 └─────────────────────────────────────────────┘
                     │
                     ▼
 ┌─────────────────────────────────────────────┐
-│              FastKV (Storage)                │
+│           Storage Backend (Pluggable)        │
 │                                              │
 │  Stores only: {                              │
 │    "wrapped_key": "...",                     │
@@ -33,84 +79,126 @@ End-to-end encrypted key-value storage where plaintext NEVER leaves your device.
 | Party | Sees Plaintext? | Sees Ciphertext? | Sees Encryption Key? |
 |-------|-----------------|------------------|---------------------|
 | **Your Device** | ✅ Yes | ✅ Yes | ✅ Yes |
-| **FastKV Server** | ❌ No | ✅ Yes | ❌ No (wrapped) |
+| **Storage Server** | ❌ No | ✅ Yes | ❌ No (wrapped) |
 | **TEE (OutLayer)** | ❌ No | ❌ No | ✅ Yes (unwraps only) |
 | **Network** | ❌ No | ✅ Yes (encrypted) | ❌ No |
 
-## Installation
+## Built-in Adapters
 
-```bash
-# Clone or copy the client files
-npm install  # (if using dependencies)
-```
+### Storage Adapters
 
-## Usage
+- **FastKVAdapter** - NEAR blockchain storage via FastKV API
+- **MemoryStorageAdapter** - In-memory storage for testing
 
-### TypeScript/JavaScript (Browser)
+### TEE Adapters
+
+- **OutLayerAdapter** - NEAR OutLayer TEE for key wrapping
+- **MockTEEAdapter** - Mock TEE for testing (NOT secure!)
+
+### Crypto Adapters
+
+- **BrowserCryptoAdapter** - Web Crypto API (browser)
+- **NodeCryptoAdapter** - Node.js crypto module
+- Auto-detected via `createCryptoAdapter()`
+
+## Custom Adapters
+
+### Custom Storage Backend
 
 ```typescript
-import { PrivateKVClient } from './PrivateKVClient';
+import type { StorageAdapter, EncryptedEntry } from 'privatekv';
 
-const kv = new PrivateKVClient({
-  accountId: 'your-account.near',
-  apiUrl: 'https://near.garden'
+class S3StorageAdapter implements StorageAdapter {
+  async set(key: string, entry: EncryptedEntry) {
+    await s3.putObject({ Key: key, Body: JSON.stringify(entry) });
+    return {};
+  }
+  
+  async get(key: string) {
+    const data = await s3.getObject({ Key: key });
+    return data ? JSON.parse(data.Body) : null;
+  }
+  
+  async delete(key: string) {
+    await s3.deleteObject({ Key: key });
+    return {};
+  }
+  
+  async list(prefix: string) {
+    const objects = await s3.listObjects({ Prefix: prefix });
+    return objects.map(o => o.Key);
+  }
+}
+```
+
+### Custom TEE Backend
+
+```typescript
+import type { TEEAdapter } from 'privatekv';
+
+class CustomTEEAdapter implements TEEAdapter {
+  async wrapKey(groupId: string, plaintextKeyB64: string) {
+    const result = await fetch('/tee/wrap', {
+      method: 'POST',
+      body: JSON.stringify({ groupId, plaintextKeyB64 }),
+    });
+    return result.json();
+  }
+  
+  async unwrapKey(groupId: string, wrappedKeyB64: string) {
+    const result = await fetch('/tee/unwrap', {
+      method: 'POST',
+      body: JSON.stringify({ groupId, wrappedKeyB64 }),
+    });
+    return result.json();
+  }
+}
+```
+
+## Testing
+
+```typescript
+import { PrivateKV, MemoryStorageAdapter, MockTEEAdapter } from 'privatekv';
+
+const kv = new PrivateKV({
+  accountId: 'test.near',
+  storage: new MemoryStorageAdapter(),
+  tee: new MockTEEAdapter(),
 });
 
-// Encrypt and store
-await kv.set('my-secret', 'hello world');
-// → Encrypts locally, wraps key with TEE, stores on FastKV
-
-// Retrieve and decrypt
-const plaintext = await kv.get('my-secret');
-// → Fetches from FastKV, unwraps key with TEE, decrypts locally
-console.log(plaintext); // "hello world"
+await kv.set('test', 'hello');
+const result = await kv.get('test');
+console.log(result); // "hello"
 ```
 
-### Node.js (CLI)
+## API Reference
 
-```bash
-# Set a value
-./privatekv.js set my-secret "hello world"
+### `PrivateKV`
 
-# Get a value  
-./privatekv.js get my-secret
+#### Constructor
 
-# Run full test
-./privatekv.js test
+```typescript
+new PrivateKV(config: {
+  accountId: string;
+  storage: StorageAdapter;
+  tee: TEEAdapter;
+  crypto?: CryptoAdapter;
+  namespace?: string;
+  groupSuffix?: string;
+})
 ```
 
-## API
+#### Methods
 
-### `set(key: string, plaintext: string): Promise<void>`
-
-Encrypts plaintext and stores on FastKV.
-
-**Flow:**
-1. Generate ephemeral AES-256 key locally
-2. Encrypt plaintext locally (AES-256-GCM)
-3. Wrap ephemeral key with TEE
-4. Store encrypted entry on FastKV
-
-### `get(key: string): Promise<string | null>`
-
-Retrieves and decrypts a value.
-
-**Flow:**
-1. Fetch encrypted entry from FastKV
-2. Unwrap key with TEE (only wrapped key sent)
-3. Decrypt locally with unwrapped key
-
-### `delete(key: string): Promise<void>`
-
-Deletes a key (stores `null`).
-
-### `list(prefix?: string): Promise<string[]>`
-
-Lists keys with optional prefix filter.
+- `set(key: string, plaintext: string): Promise<{ txHash?: string }>` - Encrypt and store
+- `get(key: string): Promise<string | null>` - Retrieve and decrypt
+- `delete(key: string): Promise<{ txHash?: string }>` - Delete a key
+- `list(prefix?: string): Promise<string[]>` - List keys
+- `getKeyId(): Promise<string>` - Get TEE key ID
 
 ## Storage Format
 
-Data stored on FastKV:
+Data stored on backend:
 
 ```json
 {
@@ -124,7 +212,7 @@ Data stored on FastKV:
 
 Key path: `privatekv/{accountId}/{your-key}`
 
-## Cost
+## Cost (with FastKV/OutLayer)
 
 | Operation | Cost |
 |-----------|------|
@@ -133,12 +221,6 @@ Key path: `privatekv/{accountId}/{your-key}`
 | FastKV storage | ~0.01 NEAR (one-time) |
 | FastKV reads | Free (via API) |
 
-## Requirements
-
-- **NEAR Account** - For signing transactions
-- **NEAR CLI** - For Node.js client (`near login`)
-- **Web Crypto API** - For browser client
-
 ## Security Notes
 
 ### ✅ Protected Against
@@ -146,7 +228,6 @@ Key path: `privatekv/{accountId}/{your-key}`
 - Network sniffing (HTTPS + encryption)
 - Insider attacks (TEE enforces access)
 - Key theft (ephemeral keys, never stored)
-- Device loss (CKD-derived keys)
 
 ### ⚠️ Limitations
 - Requires NEAR account (accountability)
@@ -161,15 +242,19 @@ Key path: `privatekv/{accountId}/{your-key}`
 ## Development
 
 ```bash
-# Run test
-node privatekv.js test
+# Install dependencies
+npm install
 
-# Check FastKV health
-curl https://near.garden/health
+# Build
+npm run build
+
+# Test
+npm test
+
+# Publish
+npm publish
 ```
 
-## Related
+## License
 
-- [key-manager](https://github.com/Kampouse/key-manager) - TEE WASM module
-- [fastkv-server](https://github.com/Kampouse/fastkv-server) - FastKV API
-- [contextual.near](https://github.com/MultiAgency/fastnear-contract) - Storage contract
+MIT
