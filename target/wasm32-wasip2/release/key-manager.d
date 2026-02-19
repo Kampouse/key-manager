@@ -1,1 +1,0 @@
-/Users/asil/dev/outlayer-keymanager-standalone/target/wasm32-wasip2/release/key-manager.wasm: /Users/asil/dev/outlayer-keymanager-standalone/src/lib.rs /Users/asil/dev/outlayer-keymanager-standalone/src/main.rs
