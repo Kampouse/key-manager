@@ -1,0 +1,24 @@
+{
+  "groupId": "near-social/profile",
+  "fields": {
+    "public": {
+      "name": { "type": "string", "encrypted": false },
+      "avatar": { "type": "url", "encrypted": false },
+      "bio": { "type": "string", "encrypted": false }
+    },
+    "private": {
+      "email": { "type": "string", "encrypted": true, "required": true },
+      "phone": { "type": "string", "encrypted": true },
+      "address": { "type": "object", "encrypted": true },
+      "ssn": { "type": "string", "encrypted": true, "sensitive": true }
+    }
+  },
+  "accessControl": {
+    "owner": "${account_id}",
+    "group_pattern": "${account_id}/private"
+  },
+  "storage": {
+    "format": "enc:AES256:${key_id}:${ciphertext_b64}",
+    "backend": "fastkv"
+  }
+}
