@@ -25,6 +25,20 @@ pub enum Request {
         group_id: String,
         account_id: String,
     },
+    GetGroupKeyId {
+        group_id: String,
+        account_id: String,
+    },
+    WrapKey {
+        group_id: String,
+        account_id: String,
+        plaintext_key_b64: String,
+    },
+    UnwrapKey {
+        group_id: String,
+        account_id: String,
+        wrapped_key_b64: String,
+    },
     Encrypt {
         group_id: String,
         account_id: String,
@@ -70,6 +84,25 @@ pub struct KeyResponse {
     pub key_id: String,
     pub group_id: String,
     pub attestation_hash: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GroupKeyIdResponse {
+    pub key_id: String,
+    pub group_id: String,
+    pub algorithm: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct WrapKeyResponse {
+    pub wrapped_key_b64: String,
+    pub key_id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UnwrapKeyResponse {
+    pub plaintext_key_b64: String,
+    pub key_id: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -219,6 +252,19 @@ pub fn execute(input: &str) -> String {
             Request::GetKey { group_id, account_id } => {
                 handle_get_key(&group_id, &account_id)
             }
+            Request::GetGroupKeyId { group_id, account_id } => {
+                handle_get_group_key_id(&group_id, &account_id)
+            }
+            Request::WrapKey {
+                group_id,
+                account_id,
+                plaintext_key_b64,
+            } => handle_wrap_key(&group_id, &account_id, &plaintext_key_b64),
+            Request::UnwrapKey {
+                group_id,
+                account_id,
+                wrapped_key_b64,
+            } => handle_unwrap_key(&group_id, &account_id, &wrapped_key_b64),
             Request::Encrypt {
                 group_id,
                 account_id,
@@ -265,6 +311,82 @@ fn handle_get_key(group_id: &str, account_id: &str) -> String {
             &format!("get_key:{}:{}", group_id, account_id),
             &BASE64.encode(key),
         ),
+    };
+
+    serde_json::to_string(&response).unwrap_or_else(|e| error_response(&e.to_string(), 500))
+}
+
+fn handle_get_group_key_id(group_id: &str, account_id: &str) -> String {
+    // No membership check needed - key_id is public info
+    let key_id = key_id_for_group(group_id);
+
+    let response = GroupKeyIdResponse {
+        key_id,
+        group_id: group_id.to_string(),
+        algorithm: "AES-256-GCM".to_string(),
+    };
+
+    serde_json::to_string(&response).unwrap_or_else(|e| error_response(&e.to_string(), 500))
+}
+
+fn handle_wrap_key(group_id: &str, account_id: &str, plaintext_key_b64: &str) -> String {
+    // Check membership - only members can wrap keys
+    if !check_membership(group_id, account_id) {
+        return error_response("Not a group member", 403);
+    }
+
+    // Decode the plaintext key (client's ephemeral encryption key)
+    let plaintext_key = match BASE64.decode(plaintext_key_b64) {
+        Ok(k) => k,
+        Err(e) => return error_response(&format!("Invalid base64 key: {}", e), 400),
+    };
+
+    // Validate key length (32 bytes for AES-256)
+    if plaintext_key.len() != 32 {
+        return error_response("Key must be 32 bytes", 400);
+    }
+
+    // Get group key
+    let group_key = derive_group_key(CKD_MASTER_SEED, group_id);
+
+    // Wrap the plaintext key (encrypt with group key)
+    let wrapped_key = match encrypt(&plaintext_key, &group_key) {
+        Ok(w) => w,
+        Err(e) => return error_response(&e, 500),
+    };
+
+    let response = WrapKeyResponse {
+        wrapped_key_b64: BASE64.encode(&wrapped_key),
+        key_id: key_id_for_group(group_id),
+    };
+
+    serde_json::to_string(&response).unwrap_or_else(|e| error_response(&e.to_string(), 500))
+}
+
+fn handle_unwrap_key(group_id: &str, account_id: &str, wrapped_key_b64: &str) -> String {
+    // Check membership - only members can unwrap keys
+    if !check_membership(group_id, account_id) {
+        return error_response("Not a group member", 403);
+    }
+
+    // Decode the wrapped key
+    let wrapped_key = match BASE64.decode(wrapped_key_b64) {
+        Ok(k) => k,
+        Err(e) => return error_response(&format!("Invalid base64 wrapped key: {}", e), 400),
+    };
+
+    // Get group key
+    let group_key = derive_group_key(CKD_MASTER_SEED, group_id);
+
+    // Unwrap (decrypt with group key)
+    let plaintext_key = match decrypt(&wrapped_key, &group_key) {
+        Ok(k) => k,
+        Err(e) => return error_response(&e, 500),
+    };
+
+    let response = UnwrapKeyResponse {
+        plaintext_key_b64: BASE64.encode(&plaintext_key),
+        key_id: key_id_for_group(group_id),
     };
 
     serde_json::to_string(&response).unwrap_or_else(|e| error_response(&e.to_string(), 500))

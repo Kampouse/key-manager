@@ -2,12 +2,41 @@
 
 TEE-based encryption service running in OutLayer's secure enclave. Keys derived from CKD (Confidential Key Derivation) - nobody knows the key, not even you.
 
+## 🆕 PrivateKV - Maximum Privacy Storage
+
+**Plaintext NEVER leaves your device!**
+
+```typescript
+import { PrivateKV } from '@kampouse/private-kv';
+
+const kv = new PrivateKV({ accountId: "kampouse.near" });
+
+// Encrypt locally - plaintext never sent
+const encrypted = await kv.encrypt("password", "my secret 123");
+
+// Decrypt - only wrapped key sent to TEE
+const plaintext = await kv.decrypt(encrypted);
+```
+
+**Privacy guarantees:**
+- ✅ Server NEVER sees plaintext
+- ✅ TEE NEVER sees ciphertext  
+- ✅ Network only sees encrypted data
+- ✅ Works across devices (CKD-derived keys)
+
+See [examples/private-kv/](./examples/private-kv/) for full documentation.
+
+---
+
 ## Quick Start
 
 **Pre-compiled WASM (instant execution):**
 ```
-URL: https://github.com/Kampouse/key-manager/releases/download/v0.2.0/key-manager.wasm
-Hash: 44ce9f1f616e765f21fe208eb1ff4db29a7aac90096ca83cf75864793c21e7d3
+v0.3.0 (Latest - with PrivateKV support):
+URL: https://github.com/Kampouse/key-manager/releases/download/v0.3.0/key-manager.wasm
+Hash: 63b6cbcae38f1da7b6d105f317b329bded6c81145a1baa1f7792c6e2be25cf84
+
+v0.2.0 (Legacy):
 Target: wasm32-wasip1
 ```
 
