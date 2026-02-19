@@ -3,9 +3,6 @@ name = "key-manager"
 version = "0.1.0"
 edition = "2021"
 
-[lib]
-crate-type = ["cdylib", "rlib"]
-
 [[bin]]
 name = "key-manager"
 path = "src/main.rs"
