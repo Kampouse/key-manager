@@ -250,11 +250,18 @@ export class VaultError extends Error {
 
 // ============ Usage Examples ============
 
+// Node.js CI/CD Example
 async function cicdExample() {
+  // In Node.js, read from process.env
+  // In browser, use your config management
+  const config = typeof process !== "undefined" 
+    ? { accountId: process.env.NEAR_ACCOUNT!, paymentKey: process.env.OUTLAYER_PAYMENT_KEY! }
+    : { accountId: "your-account.near", paymentKey: "pk_..." };
+
   const vault = new SharedVault({
     projectId: "myproject.near",
-    accountId: process.env.NEAR_ACCOUNT!,
-    paymentKey: process.env.OUTLAYER_PAYMENT_KEY!,
+    accountId: config.accountId,
+    paymentKey: config.paymentKey,
   });
 
   // Load all secrets for deployment

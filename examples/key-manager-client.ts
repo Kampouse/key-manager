@@ -216,17 +216,29 @@ export class KeyManagerClient {
   }
 
   private toBase64(str: string): string {
+    // Browser
     if (typeof btoa === "function") {
       return btoa(str);
     }
-    return Buffer.from(str).toString("base64");
+    // Node.js
+    if (typeof Buffer !== "undefined") {
+      return Buffer.from(str).toString("base64");
+    }
+    // Fallback (shouldn't happen)
+    throw new Error("No base64 encoding available");
   }
 
   private fromBase64(b64: string): string {
+    // Browser
     if (typeof atob === "function") {
       return atob(b64);
     }
-    return Buffer.from(b64, "base64").toString();
+    // Node.js
+    if (typeof Buffer !== "undefined") {
+      return Buffer.from(b64, "base64").toString();
+    }
+    // Fallback (shouldn't happen)
+    throw new Error("No base64 decoding available");
   }
 }
 

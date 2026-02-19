@@ -189,7 +189,7 @@ export class TEEWallet {
 
   private async hashBytes(bytes: Uint8Array): Promise<Uint8Array> {
     // SHA-256 hash
-    const hashBuffer = await crypto.subtle.digest("SHA-256", bytes);
+    const hashBuffer = await crypto.subtle.digest("SHA-256", bytes.buffer as ArrayBuffer);
     return new Uint8Array(hashBuffer);
   }
 }
