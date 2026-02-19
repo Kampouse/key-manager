@@ -1,4 +1,4 @@
-import type { CryptoAdapter } from './types';
+import type { CryptoAdapter } from '../types';
 
 /**
  * Browser/Web Crypto API implementation
@@ -21,7 +21,7 @@ export class BrowserCryptoAdapter implements CryptoAdapter {
     const keyBytes = this.base64ToArrayBuffer(keyB64);
     return await crypto.subtle.importKey(
       'raw',
-      keyBytes,
+      keyBytes.buffer as ArrayBuffer,
       { name: 'AES-GCM', length: 256 },
       false,
       ['decrypt']

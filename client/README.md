@@ -1,26 +1,34 @@
-# PrivateKV
+# NEAR FastKV Encrypted Storage
 
-Backend-agnostic end-to-end encrypted key-value storage where plaintext **never** leaves your device.
+End-to-end encrypted key-value storage for **NEAR Protocol** using **FastKV** backend.
+
+> ⚠️ **Infrastructure Required**: This package requires:
+> - A NEAR account (for signing transactions)
+> - FastKV API endpoint (e.g., https://near.garden)
+> - OutLayer TEE contract (outlayer.near on mainnet)
+> - NEAR wallet or keypair for transaction signing
+
+Plaintext **never** leaves your device - all encryption happens client-side with AES-256-GCM.
 
 ## Features
 
 - 🔐 **Client-side AES-256-GCM encryption** - plaintext never leaves device
-- 🔌 **Pluggable storage backends** - FastKV, S3, IPFS, or any custom backend
-- 🔑 **Pluggable TEE backends** - OutLayer or custom TEE implementations
-- 🌐 **Universal** - Works in browser and Node.js
+- 🌐 **NEAR Protocol native** - built for NEAR blockchain
+- ⚡ **FastKV backend** - fast, decentralized key-value storage
+- 🔑 **TEE key wrapping** - keys protected by OutLayer TEE
 - 📦 **Full TypeScript support** - Complete type definitions
-- 🧪 **Testable** - Mock adapters for easy testing
+- 🧪 **Testable** - Mock adapters for testing without infrastructure
 
 ## Installation
 
 ```bash
-npm install privatekv
+npm install near-fastkv-encrypted
 ```
 
 ## Quick Start
 
 ```typescript
-import { PrivateKV, FastKVAdapter, OutLayerAdapter } from 'privatekv';
+import { PrivateKV, FastKVAdapter, OutLayerAdapter } from 'near-fastkv-encrypted';
 
 const kv = new PrivateKV({
   accountId: 'your-account.near',
@@ -106,7 +114,7 @@ console.log(plaintext); // "hello world"
 ### Custom Storage Backend
 
 ```typescript
-import type { StorageAdapter, EncryptedEntry } from 'privatekv';
+import type { StorageAdapter, EncryptedEntry } from 'near-fastkv-encrypted';
 
 class S3StorageAdapter implements StorageAdapter {
   async set(key: string, entry: EncryptedEntry) {
@@ -134,7 +142,7 @@ class S3StorageAdapter implements StorageAdapter {
 ### Custom TEE Backend
 
 ```typescript
-import type { TEEAdapter } from 'privatekv';
+import type { TEEAdapter } from 'near-fastkv-encrypted';
 
 class CustomTEEAdapter implements TEEAdapter {
   async wrapKey(groupId: string, plaintextKeyB64: string) {
@@ -158,7 +166,7 @@ class CustomTEEAdapter implements TEEAdapter {
 ## Testing
 
 ```typescript
-import { PrivateKV, MemoryStorageAdapter, MockTEEAdapter } from 'privatekv';
+import { PrivateKV, MemoryStorageAdapter, MockTEEAdapter } from 'near-fastkv-encrypted';
 
 const kv = new PrivateKV({
   accountId: 'test.near',

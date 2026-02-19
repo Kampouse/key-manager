@@ -1,15 +1,15 @@
 {
-  "name": "privatekv",
+  "name": "near-fastkv-encrypted",
   "version": "0.1.0",
-  "description": "Backend-agnostic end-to-end encrypted key-value storage where plaintext never leaves your device",
+  "description": "End-to-end encrypted key-value storage for NEAR Protocol using FastKV backend. Requires NEAR account and FastKV infrastructure. Client-side AES-256-GCM encryption with TEE key wrapping via OutLayer.",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
+      "types": "./dist/index.d.ts",
       "import": "./dist/index.mjs",
-      "require": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "require": "./dist/index.js"
     }
   },
   "files": ["dist", "README.md"],
