@@ -1,0 +1,22 @@
+{
+  "name": "key-manager-examples",
+  "version": "1.0.0",
+  "description": "Real-world integration patterns for OutLayer TEE Key Manager",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.0.0"
+  },
+  "keywords": [
+    "outlayer",
+    "tee",
+    "encryption",
+    "near",
+    "blockchain"
+  ],
+  "license": "MIT"
+}
