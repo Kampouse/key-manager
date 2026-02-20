@@ -1,0 +1,707 @@
+# near-fastkv-encrypted: Technical Architecture Guide
+
+This document provides a comprehensive technical understanding of the near-fastkv-encrypted system, including both the Rust TEE backend (key-manager) and the TypeScript client library.
+
+## Table of Contents
+1. [System Overview](#system-overview)
+2. [Rust TEE Backend (key-manager)](#rust-tee-backend)
+3. [TypeScript Client Library](#typescript-client-library)
+4. [Data Flow](#data-flow)
+5. [Security Model](#security-model)
+6. [Integration Examples](#integration-examples)
+
+---
+
+## System Overview
+
+The system provides end-to-end encrypted key-value storage on NEAR Protocol using:
+
+- **Client-side encryption**: AES-256-GCM, plaintext never leaves the device
+- **TEE key wrapping**: OutLayer TEE protects encryption keys
+- **Decentralized storage**: FastKV stores encrypted data on NEAR blockchain
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     Architecture Overview                        │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ┌──────────────┐      ┌──────────────┐      ┌──────────────┐ │
+│  │   Client     │──────│  OutLayer    │──────│   FastKV     │ │
+│  │  (Browser)   │      │  (TEE/WASM)  │      │  (Storage)   │ │
+│  │              │      │              │      │              │ │
+│  │ • AES-256    │      │ • Key Wrap   │      │ • Encrypted  │ │
+│  │   Encryption │      │ • Key Unwrap │      │   Data       │ │
+│  │ • Keys Never │      │ • Access     │      │ • On NEAR    │ │
+│  │   Leave     │      │   Control    │      │   Blockchain │ │
+│  └──────────────┘      └──────────────┘      └──────────────┘ │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Rust TEE Backend (key-manager)
+
+The Rust backend runs as WebAssembly inside OutLayer's Trusted Execution Environment.
+
+### Location
+- **Repository**: `https://github.com/Kampouse/key-manager`
+- **Directory**: `/src` (Rust source)
+- **Output**: WASM binary deployed to OutLayer contract
+
+### Key Components
+
+#### 1. Key Management (`src/key_management.rs`)
+
+The system uses **Cryptographic Key Derivation (CKD)** for hierarchical key management:
+
+```rust
+// Each group gets a unique key derived from a master seed
+pub struct KeyManager {
+    master_seed: [u8; 32],  // BIP39-like seed
+    nonce_counter: u64,
+}
+
+impl KeyManager {
+    /// Derive a key for a specific group (account/namespace combination)
+    pub fn derive_key(&self, group_id: &str) -> Result<[u8; 32]> {
+        // HKDF-like derivation using the master seed
+        // group_id format: "{namespace}/{account_id}"
+        // Example: "password-manager/user.near"
+    }
+}
+```
+
+**Key Properties**:
+- Each `group_id` gets a unique derived key
+- Keys are deterministic (same group_id = same key)
+- Master seed never leaves the TEE
+
+#### 2. TEE Actions (`src/actions.rs`)
+
+The WASM module exposes these actions via JSON input:
+
+| Action | Description | Input | Output |
+|--------|-------------|-------|--------|
+| `get_key` | Get public key for group | `{group_id, account_id}` | `{public_key}` |
+| `wrap_key` | Wrap a key for encrypted storage | `{group_id, plaintext_key_b64}` | `{wrapped_key_b64, key_id}` |
+| `unwrap_key` | Unwrap a previously wrapped key | `{group_id, wrapped_key_b64}` | `{plaintext_key_b64, key_id}` |
+| `get_group_key_id` | Get the key identifier for a group | `{group_id}` | `{key_id}` |
+
+#### 3. Key Wrapping Process (`src/wrapper.rs`)
+
+```rust
+/// Wrap an ephemeral AES key using the group's derived key
+pub fn wrap_key(
+    group_id: &str,
+    plaintext_key: &[u8; 32],  // The ephemeral AES key
+) -> Result<WrappedKey> {
+    // 1. Derive the group's master key
+    let master_key = key_manager.derive_key(group_id)?;
+
+    // 2. Encrypt the ephemeral key with the master key
+    let wrapped_key = encrypt_aes_gcm(
+        plaintext_key,
+        master_key,
+        nonce,  // Unique nonce for this wrapping
+    )?;
+
+    // 3. Return base64-encoded wrapped key
+    Ok(WrappedKey {
+        wrapped_key_b64: base64_encode(wrapped_key),
+        key_id: compute_key_id(group_id, master_key),
+    })
+}
+
+/// Unwrap an ephemeral AES key
+pub fn unwrap_key(
+    group_id: &str,
+    wrapped_key_b64: &str,
+) -> Result<[u8; 32]> {
+    // 1. Derive the group's master key
+    let master_key = key_manager.derive_key(group_id)?;
+
+    // 2. Decrypt the wrapped key
+    let plaintext_key = decrypt_aes_gcm(
+        wrapped_key_b64,
+        master_key,
+        nonce,
+    )?;
+
+    Ok(plaintext_key)
+}
+```
+
+#### 4. Access Control
+
+The TEE enforces access control through:
+
+```rust
+/// Verify the account is authorized to access this group
+pub fn verify_access(
+    account_id: &str,
+    group_id: &str,
+) -> bool {
+    // Current implementation: account_id must match group_id suffix
+    // Example: group "ns/user.near" is accessible by "user.near"
+
+    // Future: Access Control Lists (ACLs) for sharing
+    // - Grant explicit access to other accounts
+    // - Revoke access
+    // - Time-based permissions
+}
+```
+
+**Current Limitation**: Each group is tied to a single account. Sharing between accounts requires ACL implementation.
+
+#### 5. WASM Entry Point (`src/main.rs`)
+
+```rust
+#[no_mangle]
+pub extern "C" fn run(input_ptr: u64, input_len: u64) -> u64 {
+    // 1. Parse JSON input from TEE
+    let input = parse_input(input_ptr, input_len);
+
+    // 2. Route to appropriate action
+    let result = match input.action.as_str() {
+        "get_key" => actions::get_key(input.params)?,
+        "wrap_key" => actions::wrap_key(input.params)?,
+        "unwrap_key" => actions::unwrap_key(input.params)?,
+        "get_group_key_id" => actions::get_group_key_id(input.params)?,
+        _ => return error("Unknown action"),
+    };
+
+    // 3. Return JSON output pointer
+    allocate_and_return_json(result)
+}
+```
+
+### Building the WASM Module
+
+```bash
+# Build the WASM module for OutLayer TEE
+cargo build --target wasm32-wasip1 --release
+
+# The output: target/wasm32-wasip1/release/key-manager.wasm
+# Deploy this to OutLayer contract
+```
+
+---
+
+## TypeScript Client Library
+
+The client library (`near-fastkv-encrypted`) provides a convenient interface to the TEE and storage backend.
+
+### Core Types
+
+```typescript
+// NEAR Transaction Interface
+interface NEARTransaction {
+  receiverId: string;        // Contract to call (e.g., "outlayer.near")
+  methodName: string;        // Method to call (e.g., "request_execution")
+  args: Record<string, unknown>;  // Method arguments
+  gas?: string;              // Gas limit (default: "300000000000000")
+  deposit?: string;          // Attached deposit (default: "0.05 NEAR")
+}
+
+// Encrypted Entry Format
+interface EncryptedEntry {
+  wrapped_key: string;       // TEE-wrapped encryption key
+  ciphertext: string;        // AES-256-GCM encrypted data
+  key_id: string;            // Key identifier from TEE
+  algorithm: "AES-256-GCM";
+  v: 1;
+}
+```
+
+### Adapters
+
+#### 1. OutLayerAdapter (`src/adapters/outlayer.ts`)
+
+Handles communication with the TEE for key wrapping/unwrapping:
+
+```typescript
+class OutLayerAdapter implements TEEAdapter {
+  private readonly contractId: string;      // OutLayer contract
+  private readonly network: Network;         // 'mainnet' | 'testnet'
+  private readonly deposit: string;          // Required TEE deposit
+  private readonly gas: string;              // Gas limit
+
+  async wrapKey(groupId: string, plaintextKeyB64: string) {
+    // Call TEE to wrap the key
+    return await this.callTEE('wrap_key', {
+      group_id: groupId,
+      plaintext_key_b64: plaintextKeyB64,
+    });
+  }
+
+  async unwrapKey(groupId: string, wrappedKeyB64: string) {
+    // Call TEE to unwrap the key
+    return await this.callTEE('unwrap_key', {
+      group_id: groupId,
+      wrapped_key_b64: wrappedKeyB64,
+    });
+  }
+
+  private async callTEE(action: string, params: Record<string, unknown>) {
+    // Build transaction for OutLayer's request_execution
+    const transaction = {
+      receiverId: this.contractId,
+      methodName: 'request_execution',
+      args: {
+        source: {
+          GitHub: {
+            repo: 'github.com/Kampouse/key-manager',
+            commit: 'v0.3.0',  // WASM version
+            build_target: 'wasm32-wasip1',
+          },
+        },
+        input_data: JSON.stringify({ action, ...params }),
+        resource_limits: {
+          max_instructions: 10000000000,
+          max_memory_mb: 128,
+          max_execution_seconds: 60,
+        },
+        response_format: 'Json',
+      },
+      gas: this.gas,
+      deposit: this.deposit,  // 0.05 NEAR required!
+    };
+
+    // Sign and send transaction via user's callback
+    const teeResponse = await this.signTransaction(transaction);
+    return teeResponse;
+  }
+}
+```
+
+**Important**: The `signTransaction` callback must:
+1. Sign the NEAR transaction
+2. Send it to the blockchain
+3. Parse the TEE response from the transaction receipt
+4. Return the parsed response
+
+#### 2. FastKVAdapter (`src/adapters/fastkv.ts`)
+
+Handles storage of encrypted data on NEAR blockchain:
+
+```typescript
+class FastKVAdapter implements StorageAdapter {
+  private readonly fetch: any;  // ofetch instance
+  private readonly accountId: string;
+  private readonly contractId: string;  // FastKV contract
+
+  async set(key: string, entry: EncryptedEntry) {
+    // Store encrypted entry on FastKV
+    const response = await this.fetch('/v1/kv/set', {
+      method: 'POST',
+      body: {
+        accountId: this.accountId,
+        contractId: this.contractId,
+        key,
+        value: JSON.stringify(entry),
+      },
+    });
+    return { txHash: response.txHash };
+  }
+
+  async get(key: string): Promise<EncryptedEntry | null> {
+    // Retrieve encrypted entry from FastKV
+    const response = await this.fetch('/v1/kv/get', {
+      method: 'GET',
+      query: {
+        accountId: this.accountId,
+        contractId: this.contractId,
+        key,
+        fields: 'value',
+      },
+    });
+    if (!response.data?.value) return null;
+    return JSON.parse(response.data.value);
+  }
+
+  async list(prefix: string): Promise<string[]> {
+    // List all keys with prefix
+    const response = await this.fetch('/v1/kv/query', {
+      method: 'GET',
+      query: {
+        accountId: this.accountId,
+        contractId: this.contractId,
+        key_prefix: prefix,
+        exclude_deleted: 'true',
+        fields: 'key',
+      },
+    });
+    return response.data.map((e: { key: string }) => e.key);
+  }
+}
+```
+
+#### 3. PrivateKV (`src/index.ts`)
+
+The main class that orchestrates encryption, TEE, and storage:
+
+```typescript
+class PrivateKV {
+  private readonly accountId: string;
+  private readonly namespace: string;
+  private readonly groupSuffix: string;
+  private readonly storage: StorageAdapter;
+  private readonly tee: TEEAdapter;
+  private readonly crypto: CryptoAdapter;
+
+  async set(key: string, plaintext: string): Promise<{ txHash?: string }> {
+    // 1. Generate ephemeral AES-256 key
+    const ephemeralKey = await this.crypto.generateKey();
+
+    // 2. Encrypt plaintext with ephemeral key
+    const ciphertext = await this.crypto.encrypt(plaintext, ephemeralKey);
+
+    // 3. Wrap ephemeral key with TEE
+    const groupId = `${this.namespace}/${this.accountId}`;
+    const ephemeralKeyB64 = await this.crypto.exportKey(ephemeralKey);
+    const wrappedKey = await this.tee.wrapKey(groupId, ephemeralKeyB64);
+
+    // 4. Get the key ID
+    const keyId = await this.tee.getKeyId(groupId);
+
+    // 5. Store encrypted data and wrapped key
+    const fastkvKey = `privatekv/${this.accountId}/${key}`;
+    const entry: EncryptedEntry = {
+      wrapped_key: wrappedKey.wrapped_key_b64,
+      ciphertext,
+      key_id: keyId,
+      algorithm: 'AES-256-GCM',
+      v: 1,
+    };
+    return await this.storage.set(fastkvKey, entry);
+  }
+
+  async get(key: string): Promise<string | null> {
+    // 1. Retrieve encrypted entry
+    const fastkvKey = `privatekv/${this.accountId}/${key}`;
+    const entry = await this.storage.get(fastkvKey);
+    if (!entry) return null;
+
+    // 2. Unwrap the encryption key
+    const groupId = `${this.namespace}/${this.accountId}`;
+    const unwrapped = await this.tee.unwrapKey(groupId, entry.wrapped_key);
+
+    // 3. Import the key
+    const key = await this.crypto.importKey(unwrapped.plaintext_key_b64);
+
+    // 4. Decrypt the ciphertext
+    const plaintext = await this.crypto.decrypt(entry.ciphertext, key);
+    return plaintext;
+  }
+}
+```
+
+### Configuration Options
+
+```typescript
+const kv = new PrivateKV({
+  // Required
+  accountId: 'user.near',
+  storage: new FastKVAdapter({
+    apiUrl: 'https://near.garden',
+    accountId: 'user.near',
+  }),
+  tee: new OutLayerAdapter({
+    network: 'mainnet',      // or 'testnet'
+    contractId: 'outlayer.near',
+    deposit: '0.05 NEAR',    // Required for TEE
+    gas: '300000000000000',
+    signTransaction: async (tx) => {
+      // Sign and send transaction, return TEE response
+    },
+  }),
+
+  // Optional
+  namespace: 'password-manager',  // Key namespace (default: 'privatekv')
+  groupSuffix: 'v1',              // Group suffix for key derivation
+  crypto: createCryptoAdapter(),  // Auto-detected (Web Crypto / Node crypto)
+});
+```
+
+---
+
+## Data Flow
+
+### Storing a Password
+
+```
+User Input: "mypassword"
+        ↓
+┌─────────────────────────────────────────────────────────────┐
+│ 1. Client generates ephemeral AES-256 key                   │
+│    key_ephemeral = random_bytes(32)                         │
+└─────────────────────────────────────────────────────────────┘
+        ↓
+┌─────────────────────────────────────────────────────────────┐
+│ 2. Encrypt password locally                                 │
+│    ciphertext = AES-256-GCM("mypassword", key_ephemeral)    │
+│    IV = random_bytes(12)                                    │
+│    AuthTag = AES-GCM-Tag()                                  │
+└─────────────────────────────────────────────────────────────┘
+        ↓
+┌─────────────────────────────────────────────────────────────┐
+│ 3. Send key_ephemeral to TEE for wrapping                   │
+│    Input: {"action":"wrap_key",                            │
+│           "group_id":"password-manager/user.near",        │
+│           "plaintext_key_b64":"base64(key_ephemeral)"}      │
+│                                                              │
+│    OutLayer executes WASM in TEE:                            │
+│    - Derive master key for group                             │
+│    - Encrypt key_ephemeral with master key                  │
+│    - Return wrapped_key_b64                                  │
+└─────────────────────────────────────────────────────────────┘
+        ↓
+┌─────────────────────────────────────────────────────────────┐
+│ 4. Store encrypted data on FastKV                           │
+│    {                                                           │
+│      wrapped_key: "base64(wrapped_key_ephemeral)",          │
+│      ciphertext: "base64(IV + ciphertext + AuthTag)",        │
+│      key_id: "7bef47124a0b4fe1",                           │
+│      algorithm: "AES-256-GCM",                              │
+│      v: 1                                                     │
+│    }                                                           │
+│                                                              │
+│    Stored at: privatekv/user.near/mypassword                  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Retrieving a Password
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ 1. Retrieve encrypted entry from FastKV                       │
+│    entry = {                                                  │
+│      wrapped_key: "...",                                    │
+│      ciphertext: "...",                                     │
+│      key_id: "7bef47124a0b4fe1"                              │
+│    }                                                          │
+└─────────────────────────────────────────────────────────────┘
+        ↓
+┌─────────────────────────────────────────────────────────────┐
+│ 2. Send wrapped_key to TEE for unwrapping                   │
+│    Input: {"action":"unwrap_key",                          │
+│           "group_id":"password-manager/user.near",        │
+│           "wrapped_key_b64":"base64(wrapped_key)"}          │
+│                                                              │
+│    OutLayer executes WASM in TEE:                            │
+│    - Derive master key for group                             │
+│    - Decrypt wrapped_key with master key                     │
+│    - Return plaintext_key_b64                                 │
+└─────────────────────────────────────────────────────────────┘
+        ↓
+┌─────────────────────────────────────────────────────────────┐
+│ 3. Decrypt ciphertext locally                                │
+│    key_ephemeral = base64_decode(plaintext_key_b64)         │
+│    password = AES-256-GCM-Decrypt(ciphertext, key_ephemeral) │
+└─────────────────────────────────────────────────────────────┘
+        ↓
+Result: "mypassword"
+```
+
+---
+
+## Security Model
+
+### What Each Component Sees
+
+| Component | Plaintext | Ciphertext | Encryption Key |
+|-----------|-----------|-------------|-----------------|
+| **Client Device** | ✅ Yes | ✅ Yes | ✅ Yes (ephemeral) |
+| **Network** | ❌ No | ✅ Yes | ❌ No |
+| **FastKV Storage** | ❌ No | ✅ Yes | ❌ No (wrapped only) |
+| **OutLayer TEE** | ❌ No | ❌ No | ✅ Yes (master key) |
+
+### Threat Model
+
+**Protected Against**:
+- ✅ Server compromise (only ciphertext stored)
+- ✅ Network sniffing (HTTPS + encryption)
+- ✅ Insider attacks at storage provider
+- ✅ Key theft (ephemeral keys, never stored)
+
+**Does NOT Protect Against**:
+- ❌ Client-side malware
+- ❌ Compromised NEAR account
+- ❌ TEE hardware backdoors
+- ❌ Physical device access
+
+### Key Hierarchy
+
+```
+Master Seed (NEVER leaves TEE)
+    │
+    ├─ HKDF Derive
+    │
+    ├─ "password-manager/user.near" → Group Master Key
+    │
+    ├─ "notes/user.near" → Group Master Key
+    │
+    └─ "vault/user.near" → Group Master Key
+          │
+          ├─ Ephemeral Key 1 → wraps specific entry
+          ├─ Ephemeral Key 2 → wraps specific entry
+          └─ ...
+```
+
+---
+
+## Integration Examples
+
+### React with Vite
+
+```typescript
+import { PrivateKV, FastKVAdapter, OutLayerAdapter } from 'near-fastkv-encrypted';
+import { Near, fromHotConnect } from 'near-kit';
+import type { NearConnector } from '@hot-labs/near-connect';
+
+async function initPasswordManager(
+  accountId: string,
+  nearConnector: NearConnector
+) {
+  const near = new Near({
+    network: 'testnet',
+    wallet: fromHotConnect(nearConnector),
+  });
+
+  return new PrivateKV({
+    accountId,
+    namespace: 'password-manager',
+    groupSuffix: 'v1',
+    storage: new FastKVAdapter({
+      apiUrl: 'https://near.garden',
+      accountId,
+    }),
+    tee: new OutLayerAdapter({
+      network: 'testnet',
+      signTransaction: async (tx) => {
+        const result = await near.transaction(accountId)
+          .functionCall(
+            tx.receiverId,
+            tx.methodName,
+            tx.args || {},
+            {
+              gas: tx.gas || '300000000000000',
+              attachedDeposit: tx.deposit || '0.05 NEAR',
+            }
+          )
+          .send();
+
+        // Parse TEE response from transaction receipt
+        const receipt = result.receipts_outcome[0];
+        return JSON.parse(receipt.outcome.logs[0]);
+      },
+    }),
+  });
+}
+```
+
+### Node.js Backend
+
+```typescript
+import { PrivateKV, FastKVAdapter, OutLayerAdapter } from 'near-fastkv-encrypted';
+import { Near } from 'near-api-js';
+
+async function createPrivateKeyManager(accountId: string, keyPair: KeyPair) {
+  const near = new Near({
+    networkId: 'mainnet',
+    keyStore: new InMemoryKeyStore(),
+  });
+  await near.keyStore.setKey('mainnet', accountId, keyPair);
+
+  return new PrivateKV({
+    accountId,
+    storage: new FastKVAdapter({
+      apiUrl: 'https://near.garden',
+      accountId,
+    }),
+    tee: new OutLayerAdapter({
+      network: 'mainnet',
+      signTransaction: async (tx) => {
+        const result = await near.connection.provider.signAndSendTransaction({
+          receiverId: tx.receiverId,
+          actions: [{
+            type: 'FunctionCall',
+            methodName: tx.methodName,
+            args: tx.args,
+            gas: tx.gas,
+            deposit: tx.deposit,
+          }],
+        });
+
+        // Parse TEE response
+        const receipt = result.receipts_outcome[0];
+        return JSON.parse(receipt.outcome.logs[0]);
+      },
+    }),
+  });
+}
+```
+
+---
+
+## Network Configuration
+
+| Network | OutLayer Contract | FastKV Contract | FastKV API |
+|---------|------------------|-----------------|------------|
+| Mainnet | `outlayer.near` | `contextual.near` | `https://near.garden` |
+| Testnet | `outlayer.testnet` | `contextual.testnet` | `https://testnet.near.garden` |
+
+---
+
+## Cost Breakdown (Mainnet)
+
+| Operation | Cost |
+|-----------|------|
+| TEE key wrap | ~0.05 NEAR per operation |
+| TEE key unwrap | ~0.05 NEAR per operation |
+| FastKV storage | ~0.01 NEAR (one-time) |
+| FastKV read | Free (via API) |
+
+**Example**: Storing one password costs ~0.06 NEAR (wrap + storage)
+
+---
+
+## Troubleshooting
+
+### Common Errors
+
+1. **"No receiver ID set for transaction"**
+   - Cause: Transaction object missing `receiverId`
+   - Fix: Use `tx.receiverId` instead of `tx.contractId`
+
+2. **"Insufficient deposit"**
+   - Cause: TEE requires 0.05 NEAR deposit
+   - Fix: Ensure `attachedDeposit: '0.05 NEAR'` in transaction
+
+3. **"'fetch' called on object that does not implement interface Window"**
+   - Cause: Missing fetch polyfill in Node.js
+   - Fix: Use ofetch (included) or provide fetch implementation
+
+4. **"Failed to unwrap key"**
+   - Cause: Trying to decrypt data encrypted by a different account
+   - Fix: Ensure same `accountId` is used for encrypt/decrypt
+
+---
+
+## Future Enhancements
+
+### Planned Features
+- Access Control Lists (ACLs) for shared secrets
+- Multi-signature support for team vaults
+- Time-based access (expiring shares)
+- Hierarchical permissions
+
+### Contributing
+The project welcomes contributions! See `CONTRIBUTING.md` in the repository.
+
+---
+
+## License
+
+MIT License - See LICENSE file for details.
