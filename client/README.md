@@ -47,18 +47,37 @@ import { PrivateKV, FastKVAdapter, OutLayerAdapter } from 'near-fastkv-encrypted
 
 const kv = new PrivateKV({
   accountId: 'your-account.near',
-  
+
   // Storage backend
   storage: new FastKVAdapter({
     apiUrl: 'https://near.garden',
     accountId: 'your-account.near',
   }),
-  
+
   // TEE backend (for key wrapping)
   tee: new OutLayerAdapter({
+    network: 'mainnet', // or 'testnet'
     signTransaction: async (tx) => {
+      // tx.receiverId - the contract to call (e.g., "outlayer.near")
+      // tx.methodName - the method to call (e.g., "request_execution")
+      // tx.args - the arguments for the method
+      // tx.deposit - amount to attach (e.g., "0.05 NEAR") - USE THIS!
+      // tx.gas - gas limit (e.g., "300000000000000")
+
       // Sign with NEAR wallet or keypair
-      return wallet.signAndSendTransaction(tx);
+      // Example with near-kit:
+      const result = await near.transaction(accountId)
+        .functionCall(tx.receiverId, tx.methodName, tx.args, {
+          gas: tx.gas || '300000000000000',
+          attachedDeposit: tx.deposit || '0.05 NEAR',
+        })
+        .send();
+
+      // Parse and return the TEE response from the transaction result
+      // The OutLayer contract returns the TEE result in the receipt
+      const receipt = result.receipts_outcome[0];
+      const teeResponse = JSON.parse(receipt.outcome.logs[0]);
+      return teeResponse;
     },
   }),
 });
@@ -70,6 +89,20 @@ await kv.set('my-secret', 'hello world');
 const plaintext = await kv.get('my-secret');
 console.log(plaintext); // "hello world"
 ```
+
+### Important: Transaction Signing
+
+The `signTransaction` callback receives a `NEARTransaction` object with the following properties:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `receiverId` | `string` | Contract account ID to call (e.g., "outlayer.near") |
+| `methodName` | `string` | Method name to call (e.g., "request_execution") |
+| `args` | `object` | Method arguments |
+| `gas` | `string` | Gas limit in yoctoNEAR (default: "300000000000000") |
+| `deposit` | `string` | Attached deposit (e.g., "0.05 NEAR") - **Required for OutLayer!** |
+
+**⚠️ OutLayer requires 0.05 NEAR deposit for each TEE operation.** Make sure to attach this deposit when signing transactions.
 
 ## Architecture
 
@@ -192,6 +225,131 @@ const kv = new PrivateKV({
 await kv.set('test', 'hello');
 const result = await kv.get('test');
 console.log(result); // "hello"
+```
+
+## Framework Examples
+
+### React with Vite
+
+```typescript
+import { PrivateKV, FastKVAdapter, OutLayerAdapter } from 'near-fastkv-encrypted';
+import { Near, fromHotConnect } from 'near-kit';
+import type { NearConnector } from '@hot-labs/near-connect';
+
+// Initialize with React Query or similar
+async function initPasswordManager(
+  accountId: string,
+  nearConnector: NearConnector
+) {
+  const near = new Near({
+    network: 'testnet',
+    wallet: fromHotConnect(nearConnector),
+  });
+
+  return new PrivateKV({
+    accountId,
+    namespace: 'password-manager',
+    groupSuffix: 'v1',
+    storage: new FastKVAdapter({
+      apiUrl: 'https://near.garden',
+      accountId,
+      // Vite/SSR: fetch is available via polyfill
+      fetch: window.fetch,
+    }),
+    tee: new OutLayerAdapter({
+      network: 'testnet',
+      signTransaction: async (tx) => {
+        // tx.deposit is "0.05 NEAR" - attach it!
+        const result = await near.transaction(accountId)
+          .functionCall(
+            tx.receiverId,
+            tx.methodName || 'set',
+            tx.args || {},
+            {
+              gas: tx.gas || '300000000000000',
+              attachedDeposit: tx.deposit || '0.05 NEAR',
+            }
+          )
+          .send();
+        return result.transaction.hash;
+      },
+    }),
+  });
+}
+```
+
+### Next.js (SSR)
+
+```typescript
+import { PrivateKV, FastKVAdapter, OutLayerAdapter } from 'near-fastkv-encrypted';
+
+// Explicitly provide fetch for SSR
+function createPrivateKV(accountId: string, wallet: any) {
+  return new PrivateKV({
+    accountId,
+    storage: new FastKVAdapter({
+      apiUrl: 'https://near.garden',
+      accountId,
+      fetch: fetch, // Use native fetch (Node 18+)
+    }),
+    tee: new OutLayerAdapter({
+      network: 'mainnet',
+      signTransaction: async (tx) => {
+        const result = await wallet.signAndSendTransaction({
+          receiverId: tx.receiverId,
+          actions: [{
+            type: 'FunctionCall',
+            methodName: tx.methodName,
+            args: tx.args,
+            gas: tx.gas,
+            deposit: tx.deposit,
+          }],
+        });
+        return result.transaction.hash;
+      },
+    }),
+  });
+}
+```
+
+### Node.js Backend
+
+```typescript
+import fetch from 'node-fetch'; // Node.js < 18
+import { PrivateKV, FastKVAdapter, OutLayerAdapter } from 'near-fastkv-encrypted';
+import { Near } from 'near-api-js';
+
+async function createPrivateKeyManager(accountId: string, keyPair: any) {
+  const near = new Near({
+    networkId: 'mainnet',
+    keyStore: /* your key store */,
+  });
+
+  return new PrivateKV({
+    accountId,
+    storage: new FastKVAdapter({
+      apiUrl: 'https://near.garden',
+      accountId,
+      fetch: fetch as any, // Provide node-fetch
+    }),
+    tee: new OutLayerAdapter({
+      network: 'mainnet',
+      signTransaction: async (tx) => {
+        const result = await near.connection.provider.signTransaction({
+          receiverId: tx.receiverId,
+          actions: [{
+            type: 'FunctionCall',
+            methodName: tx.methodName,
+            args: tx.args,
+            gas: tx.gas,
+            deposit: tx.deposit,
+          }],
+        });
+        return result.transaction.hash;
+      },
+    }),
+  });
+}
 ```
 
 ## API Reference
