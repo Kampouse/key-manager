@@ -50,7 +50,7 @@ const kv = new PrivateKV({
 
   // Storage backend
   storage: new FastKVAdapter({
-    apiUrl: 'https://near.garden',
+    apiUrl: 'https://fastkv-server-production.up.railway.app',
     accountId: 'your-account.near',
   }),
 

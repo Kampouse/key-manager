@@ -21,10 +21,15 @@ export interface FastKVAdapterConfig {
  * @example
  * ```ts
  * const adapter = new FastKVAdapter({
- *   apiUrl: 'https://near.garden',
+ *   apiUrl: 'https://fastkv-server-production.up.railway.app',
  *   accountId: 'my-account.near',
  * });
  * ```
+ *
+ * @remarks
+ * The near.garden API is read-only for querying. For writes, use:
+ * - Production: https://fastkv-server-production.up.railway.app
+ * - Or deploy your own FastKV server
  */
 export class FastKVAdapter implements StorageAdapter {
   private readonly fetch: any;
