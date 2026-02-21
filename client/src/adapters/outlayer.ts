@@ -1,30 +1,74 @@
-import type { TEEAdapter } from '../types';
+import type { TEEAdapter, NEARTransaction } from '../types';
+
+export type Network = 'mainnet' | 'testnet';
 
 export interface OutLayerAdapterConfig {
-  /** OutLayer contract ID */
+  /** OutLayer contract ID (default: based on network) */
   contractId?: string;
-  /** Key manager WASM version */
+  /** Network to use (default: mainnet) */
+  network?: Network;
+  /** Key manager WASM version (default: v0.3.0) */
   keyManagerVersion?: string;
-  /** Function to sign NEAR transactions */
-  signTransaction: (transaction: unknown) => Promise<unknown>;
+  /** Deposit amount for TEE execution (default: "0.05 NEAR") */
+  deposit?: string;
+  /** Gas limit for TEE execution (default: "300000000000000") */
+  gas?: string;
+  /** Function to sign NEAR transactions and return the TEE response */
+  signTransaction: (transaction: NEARTransaction) => Promise<Record<string, unknown>>;
 }
+
+const DEFAULT_CONTRACTS: Record<Network, string> = {
+  mainnet: 'outlayer.near',
+  testnet: 'outlayer.testnet',
+};
+
+const DEFAULT_DEPOSIT = '0.05 NEAR';
+const DEFAULT_GAS = '300000000000000';
 
 /**
  * OutLayer TEE adapter for NEAR
- * 
+ *
  * Requires a signing function to authorize TEE operations.
  * In browser: use NEAR wallet
  * In Node.js: use keypair or NEAR CLI
+ *
+ * @example
+ * ```ts
+ * const adapter = new OutLayerAdapter({
+ *   network: 'testnet',
+ *   signTransaction: async (tx) => {
+ *     // tx.receiverId - the contract to call
+ *     // tx.deposit - amount to attach (use this!)
+ *     const result = await wallet.signAndSendTransaction({
+ *       receiverId: tx.receiverId,
+ *       actions: [{
+ *         type: 'FunctionCall',
+ *         methodName: tx.methodName,
+ *         args: tx.args,
+ *         gas: tx.gas,
+ *         deposit: tx.deposit,
+ *       }]
+ *     });
+ *     return result.transaction.hash;
+ *   },
+ * });
+ * ```
  */
 export class OutLayerAdapter implements TEEAdapter {
   private readonly contractId: string;
+  private readonly network: Network;
   private readonly keyManagerVersion: string;
+  private readonly deposit: string;
+  private readonly gas: string;
   private readonly signTransaction: OutLayerAdapterConfig['signTransaction'];
   private readonly keyIdCache = new Map<string, string>();
 
   constructor(config: OutLayerAdapterConfig) {
-    this.contractId = config.contractId || 'outlayer.near';
+    this.network = config.network || 'mainnet';
+    this.contractId = config.contractId || DEFAULT_CONTRACTS[this.network];
     this.keyManagerVersion = config.keyManagerVersion || 'v0.3.0';
+    this.deposit = config.deposit || DEFAULT_DEPOSIT;
+    this.gas = config.gas || DEFAULT_GAS;
     this.signTransaction = config.signTransaction;
   }
 
@@ -69,8 +113,8 @@ export class OutLayerAdapter implements TEEAdapter {
   ): Promise<any> {
     const input = JSON.stringify({ action, ...params });
 
-    const transaction = {
-      contractId: this.contractId,
+    const transaction: NEARTransaction = {
+      receiverId: this.contractId,
       methodName: 'request_execution',
       args: {
         source: {
@@ -88,6 +132,8 @@ export class OutLayerAdapter implements TEEAdapter {
         },
         response_format: 'Json',
       },
+      gas: this.gas,
+      deposit: this.deposit,
     };
 
     const result = await this.signTransaction(transaction);
