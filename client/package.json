@@ -44,7 +44,7 @@
   },
   "homepage": "https://github.com/Kampouse/key-manager#readme",
   "dependencies": {
-    "near-api-js": "^7.1.1",
+    "near-api-js": "^3.0.0",
     "ofetch": "^1.5.1"
   },
   "devDependencies": {
