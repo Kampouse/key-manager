@@ -1,0 +1,9 @@
+{
+  "$schema": "https://schema.railpack.com/v1.json",
+  "build": {
+    "provider": "nixpacks"
+  },
+  "deploy": {
+    "startCommand": "./target/release/fastkv-server"
+  }
+}
