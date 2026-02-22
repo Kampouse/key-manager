@@ -2,7 +2,7 @@
 nixPkgs = ["...", "openssl"]
 
 [phases.build]
-cmds = ["cargo build --release"]
+cmds = ["cargo build --release --bin fastkv-server"]
 
 [start]
 cmd = "./target/release/fastkv-server"
