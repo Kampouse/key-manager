@@ -1,0 +1,17 @@
+[package]
+name = "suffix-fetcher"
+description = "Common crate to fetch fastdata by suffix from Redis"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+redis_db = { path = "../redis_db" }
+tokio.workspace = true
+fastnear-primitives.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+redis.workspace = true
+serde_json.workspace = true

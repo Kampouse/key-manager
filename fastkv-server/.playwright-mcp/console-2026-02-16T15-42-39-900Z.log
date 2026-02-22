@@ -1,0 +1,2 @@
+[      60ms] [ERROR] Executing inline script violates the following Content Security Policy directive 'script-src 'self' https://esm.sh 'sha256-YHJHDJng+iozuy8fDZVnJ6tD36uK68vfZ1ZAfNU6Yn4=''. Either the 'unsafe-inline' keyword, a hash ('sha256-BfJOqmrvGW4xa9ZrsiUKYORjzdS0mPSQl0EKyU6psR4='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked. @ http://localhost:3001/:33
+[      81ms] Failed to resolve module specifier "near-kit". Relative references must start with either "/", "./", or "../".

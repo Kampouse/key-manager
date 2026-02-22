@@ -1,0 +1,18 @@
+[package]
+name = "scylladb"
+description = "Shared generic crate for scylladb"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+fastnear-primitives.workspace = true
+tracing.workspace = true
+scylla.workspace = true
+anyhow.workspace = true
+tokio.workspace = true
+rustls.workspace = true
+futures.workspace = true
+

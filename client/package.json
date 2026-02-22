@@ -36,7 +36,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Kampouse/key-manager.git",
+    "url": "git+https://github.com/Kampouse/key-manager.git",
     "directory": "client"
   },
   "bugs": {
