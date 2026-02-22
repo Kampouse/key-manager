@@ -3,6 +3,14 @@ name = "fastkv-server"
 version = "2.0.0"
 edition = "2021"
 
+[[bin]]
+name = "fastkv-server"
+path = "src/main.rs"
+
+[[bin]]
+name = "create-tables"
+path = "create-tables.rs"
+
 [dependencies]
 actix-web = "4.5.1"
 actix-cors = "0.7.0"
@@ -14,6 +22,7 @@ tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 tracing-actix-web = "0.7.9"
 scylla = { version = "1.4", features = ["rustls-023", "full-serialization"] }
 rustls = { version = "0.23", features = ["aws_lc_rs"] }
+rustls-native-certs = "0.8"
 anyhow = "1.0.70"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -21,6 +30,6 @@ utoipa = { version = "5", features = ["actix_extras"] }
 utoipa-scalar = { version = "0.2", features = ["actix-web"] }
 chrono = "0.4"
 futures = "0.3"
-tokio = { version = "1", features = ["sync", "rt", "time"] }
+tokio = { version = "1", features = ["sync", "rt", "rt-multi-thread", "macros", "time"] }
 async-stream = "0.3"
 time = ">=0.3, <0.3.46"  # pin: 0.3.46+ requires Rust 1.88

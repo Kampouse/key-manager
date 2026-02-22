@@ -345,37 +345,36 @@ impl ScyllaDb {
                 &format!("SELECT {} FROM s_kv_by_block WHERE predecessor_id = ? AND current_account_id = ? AND block_height >= ? AND block_height <= ? ORDER BY block_height ASC, key DESC", timeline_columns),
                 scylla::frame::types::Consistency::LocalOne,
             ).await?,
-            // LocalQuorum for kv_accounts: this table is populated asynchronously so
-            // LocalOne reads could return stale/partial results after recent writes.
+            // LocalOne for single-node deployment (LocalQuorum requires 2+ nodes)
             accounts_by_contract: Self::prepare_query(
                 &scylla_session,
                 &format!("SELECT predecessor_id FROM {} WHERE current_account_id = ?", kv_accounts_table_name),
-                scylla::frame::types::Consistency::LocalQuorum,
+                scylla::frame::types::Consistency::LocalOne,
             ).await?,
             accounts_by_contract_key: Self::prepare_query(
                 &scylla_session,
                 &format!("SELECT predecessor_id FROM {} WHERE current_account_id = ? AND key = ?", kv_accounts_table_name),
-                scylla::frame::types::Consistency::LocalQuorum,
+                scylla::frame::types::Consistency::LocalOne,
             ).await?,
             accounts_all: Self::prepare_query(
                 &scylla_session,
                 &format!("SELECT predecessor_id FROM {}", all_accounts_table_name),
-                scylla::frame::types::Consistency::LocalQuorum,
+                scylla::frame::types::Consistency::LocalOne,
             ).await?,
             accounts_all_cursor: Self::prepare_query(
                 &scylla_session,
                 &format!("SELECT predecessor_id FROM {} WHERE TOKEN(predecessor_id) > TOKEN(?)", all_accounts_table_name),
-                scylla::frame::types::Consistency::LocalQuorum,
+                scylla::frame::types::Consistency::LocalOne,
             ).await?,
             contracts_all: Self::prepare_query(
                 &scylla_session,
                 &format!("SELECT current_account_id FROM {}", kv_accounts_table_name),
-                scylla::frame::types::Consistency::LocalQuorum,
+                scylla::frame::types::Consistency::LocalOne,
             ).await?,
             contracts_all_cursor: Self::prepare_query(
                 &scylla_session,
                 &format!("SELECT current_account_id FROM {} WHERE TOKEN(current_account_id) > TOKEN(?)", kv_accounts_table_name),
-                scylla::frame::types::Consistency::LocalQuorum,
+                scylla::frame::types::Consistency::LocalOne,
             ).await?,
             contracts_by_account: Self::prepare_query(
                 &scylla_session,
