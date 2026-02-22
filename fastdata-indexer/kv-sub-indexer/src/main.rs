@@ -1,10 +1,8 @@
-mod scylla_types;
-
-use crate::scylla_types::{add_kv_rows, FastDataKv, KvQueries, INDEXER_ID, SUFFIX};
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use dotenvy::dotenv;
 use fastnear_primitives::near_indexer_primitives::types::BlockHeight;
 use fastnear_primitives::types::ChainId;
-use scylladb::{retry_with_delays, ScyllaDb};
+use redis_db::{FastData, FastDataKv, RedisDb};
 use std::env;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -13,11 +11,22 @@ use suffix_fetcher::{SuffixFetcher, SuffixFetcherConfig, SuffixFetcherUpdate};
 use tokio::sync::mpsc;
 
 const PROJECT_ID: &str = "kv-sub-indexer";
+const SUFFIX: &str = "kv";
+const INDEXER_ID: &str = "kv-sub-indexer";
 const MAX_NUM_KEYS: usize = 256;
 const MAX_KEY_LENGTH: usize = 1024;
 
-fn parse_kv_entries(fastdata: &scylladb::FastData) -> Vec<FastDataKv> {
-    let json_value = match serde_json::from_slice::<serde_json::Value>(&fastdata.data) {
+fn parse_kv_entries(fastdata: &FastData) -> Vec<FastDataKv> {
+    // Decode base64 data
+    let decoded_data = match BASE64.decode(&fastdata.data) {
+        Ok(d) => d,
+        Err(e) => {
+            tracing::warn!(target: PROJECT_ID, "Failed to decode base64 data: {:?}", e);
+            return vec![];
+        }
+    };
+    
+    let json_value = match serde_json::from_slice::<serde_json::Value>(&decoded_data) {
         Ok(v) => v,
         Err(_) => {
             tracing::debug!(target: PROJECT_ID, "Received invalid Key-Value Fastdata");
@@ -40,13 +49,7 @@ fn parse_kv_entries(fastdata: &scylladb::FastData) -> Vec<FastDataKv> {
         return vec![];
     }
 
-    let order_id = match scylladb::compute_order_id(fastdata) {
-        Ok(id) => id,
-        Err(e) => {
-            tracing::error!(target: PROJECT_ID, "Skipping KV entry (data permanently lost): {}", e);
-            return vec![];
-        }
-    };
+    let order_id = compute_order_id(fastdata);
     let mut entries = Vec::new();
     for (key, value) in json_object {
         if key.len() > MAX_KEY_LENGTH {
@@ -69,13 +72,12 @@ fn parse_kv_entries(fastdata: &scylladb::FastData) -> Vec<FastDataKv> {
             }
         };
         
-        // Detect if value is encrypted (format: "enc:AES256:key_id:ciphertext")
-        let encrypted_key_id = scylla_types::detect_encrypted(&serialized_value);
+        let encrypted_key_id = detect_encrypted(&serialized_value);
         
         entries.push(FastDataKv {
-            receipt_id: fastdata.receipt_id,
+            receipt_id: fastdata.receipt_id.clone(),
             action_index: fastdata.action_index,
-            tx_hash: fastdata.tx_hash,
+            tx_hash: fastdata.tx_hash.clone(),
             signer_id: fastdata.signer_id.clone(),
             predecessor_id: fastdata.predecessor_id.clone(),
             current_account_id: fastdata.current_account_id.clone(),
@@ -92,15 +94,31 @@ fn parse_kv_entries(fastdata: &scylladb::FastData) -> Vec<FastDataKv> {
     entries
 }
 
+fn compute_order_id(fastdata: &FastData) -> u64 {
+    ((fastdata.shard_id as u64) * 100_000 + fastdata.receipt_index as u64) * 1_000 + fastdata.action_index as u64
+}
+
+fn detect_encrypted(value: &str) -> Option<String> {
+    let value = value.trim_matches('"');
+    if let Some(rest) = value.strip_prefix("enc:AES256:") {
+        let parts: Vec<&str> = rest.splitn(2, ':').collect();
+        if parts.len() == 2 {
+            return Some(parts[0].to_string());
+        }
+    }
+    None
+}
+
 async fn flush_rows(
-    scylladb: &ScyllaDb,
-    queries: &KvQueries,
+    redis_db: &RedisDb,
     rows: &[FastDataKv],
     checkpoint: Option<BlockHeight>,
 ) -> anyhow::Result<()> {
-    retry_with_delays(&[1, 2, 4], || {
-        add_kv_rows(scylladb, queries, rows, checkpoint)
-    }).await
+    redis_db.add_kv_batch(rows).await?;
+    if let Some(height) = checkpoint {
+        redis_db.set_last_processed_block_height(INDEXER_ID, height).await?;
+    }
+    Ok(())
 }
 
 #[tokio::main]
@@ -110,7 +128,7 @@ async fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("kv-sub-indexer=info,scylladb=info,suffix-fetcher=info")),
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("kv-sub-indexer=info,redis_db=info,suffix-fetcher=info")),
         )
         .init();
 
@@ -119,28 +137,21 @@ async fn main() {
         .try_into()
         .expect("Invalid chain id");
 
-    let fetcher = SuffixFetcher::new(chain_id, None)
+    let redis_db = Arc::new(RedisDb::new(chain_id.to_string())
+        .await
+        .expect("Can't connect to Redis"));
+
+    redis_db.test_connection()
+        .await
+        .expect("Can't connect to Redis");
+
+    tracing::info!(target: PROJECT_ID, "Connected to Redis");
+
+    let fetcher = SuffixFetcher::new(chain_id, Some(redis_db.clone()))
         .await
         .expect("Can't create suffix fetcher");
 
-    let scylladb = fetcher.get_scylladb();
-
-    scylla_types::create_tables(&scylladb)
-        .await
-        .expect("Error creating tables");
-
-    let queries = KvQueries {
-        kv_insert: scylla_types::prepare_kv_insert_query(&scylladb).await.expect("Error preparing kv insert query"),
-        kv_last_insert: scylla_types::prepare_kv_last_insert_query(&scylladb).await.expect("Error preparing kv_last insert query"),
-        kv_accounts_insert: scylla_types::prepare_kv_accounts_insert_query(&scylladb).await.expect("Error preparing kv_accounts insert query"),
-        kv_edges_insert: scylla_types::prepare_kv_edges_insert_query(&scylladb).await.expect("Error preparing kv_edges insert query"),
-        kv_edges_delete: scylla_types::prepare_kv_edges_delete_query(&scylladb).await.expect("Error preparing kv_edges delete query"),
-        kv_reverse_insert: scylla_types::prepare_kv_reverse_insert_query(&scylladb).await.expect("Error preparing kv_reverse insert query"),
-        all_accounts_insert: scylla_types::prepare_all_accounts_insert_query(&scylladb).await.expect("Error preparing all_accounts insert query"),
-        kv_by_block_insert: scylla_types::prepare_kv_by_block_insert_query(&scylladb).await.expect("Error preparing kv_by_block insert query"),
-    };
-
-    let last_processed_block_height = scylladb
+    let last_processed_block_height = redis_db
         .get_last_processed_block_height(INDEXER_ID)
         .await
         .expect("Error getting last processed block height");
@@ -150,7 +161,7 @@ async fn main() {
         .unwrap_or_else(|| {
             env::var("START_BLOCK_HEIGHT")
                 .ok()
-                .map(|start_block_height| start_block_height.parse().expect("Invalid block height"))
+                .map(|s| s.parse().expect("Invalid block height"))
                 .unwrap_or(0)
         });
 
@@ -164,7 +175,7 @@ async fn main() {
     .expect("Error setting Ctrl+C handler");
 
     tracing::info!(target: PROJECT_ID,
-        "Starting {:?} {} fetcher from height {}",
+        "Starting {} {} fetcher from height {}",
         SUFFIX,
         chain_id,
         start_block_height,
@@ -194,11 +205,9 @@ async fn main() {
                     tracing::info!(target: PROJECT_ID, "Early flush at {} rows", rows.len());
                     let current_rows = std::mem::take(&mut rows);
 
-                    if let Err(e) = flush_rows(
-                        &scylladb, &queries, &current_rows, None,
-                    ).await {
+                    if let Err(e) = flush_rows(&redis_db, &current_rows, None).await {
                         tracing::error!(target: PROJECT_ID,
-                            "Failed to write data after retries. Shutting down to prevent data loss: {:?}", e
+                            "Failed to write data. Shutting down to prevent data loss: {:?}", e
                         );
                         is_running.store(false, Ordering::SeqCst);
                         break;
@@ -209,11 +218,9 @@ async fn main() {
                 tracing::info!(target: PROJECT_ID, "Saving last processed block height {} with {} rows", block_height, rows.len());
                 let current_rows = std::mem::take(&mut rows);
 
-                if let Err(e) = flush_rows(
-                    &scylladb, &queries, &current_rows, Some(block_height),
-                ).await {
+                if let Err(e) = flush_rows(&redis_db, &current_rows, Some(block_height)).await {
                     tracing::error!(target: PROJECT_ID,
-                        "Failed to write data after retries. Shutting down to prevent data loss: {:?}", e
+                        "Failed to write data. Shutting down to prevent data loss: {:?}", e
                     );
                     is_running.store(false, Ordering::SeqCst);
                     break;

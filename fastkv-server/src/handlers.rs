@@ -1,5 +1,5 @@
 use crate::models::*;
-use crate::scylladb::ScyllaDb;
+use crate::redis_db::RedisDb;
 use crate::tree::build_tree;
 use crate::AppState;
 use actix_web::{get, post, web, HttpRequest, HttpResponse};
@@ -11,9 +11,9 @@ use std::time::Duration;
 const THROTTLE_EXPIRY: Duration = Duration::from_secs(60);
 const MAX_THROTTLE_ENTRIES: usize = 50_000;
 
-pub(crate) async fn require_db(state: &AppState) -> Result<Arc<ScyllaDb>, ApiError> {
+pub(crate) async fn require_db(state: &AppState) -> Result<Arc<RedisDb>, ApiError> {
     state
-        .scylladb
+        .db
         .read()
         .await
         .clone()
@@ -221,7 +221,7 @@ fn check_scan_throttle(app_state: &AppState, ip: &str) -> Result<(), ApiError> {
 )]
 #[get("/health")]
 pub async fn health_check(app_state: web::Data<AppState>) -> Result<HttpResponse, ApiError> {
-    let db = app_state.scylladb.read().await.clone();
+    let db = app_state.db.read().await.clone();
     match db.as_ref() {
         Some(db) => match db.health_check().await {
             Ok(_) => Ok(HttpResponse::Ok().json(HealthResponse {
@@ -414,13 +414,13 @@ pub async fn history_kv_handler(
     );
 
     let db = require_db(&app_state).await?;
-    let (entries, has_more, dropped, next_cursor) = db.get_kv_history(&query).await?;
+    let (entries, has_more, _truncated, next_cursor) = db.get_kv_history(&query).await?;
 
     let meta = PaginationMeta {
         has_more,
         truncated: false,
         next_cursor,
-        dropped_rows: dropped_to_option(dropped),
+        dropped_rows: None,
     };
     let fields = parse_field_set(&query.fields)?;
     let decode = should_decode(&query.value_format)?;
@@ -706,13 +706,13 @@ pub async fn diff_kv_handler(
             &query.predecessor_id,
             &query.current_account_id,
             &query.key,
-            query.block_height_a,
+            query.block_height_a.max(0) as u64,
         ),
         db.get_kv_at_block(
             &query.predecessor_id,
             &query.current_account_id,
             &query.key,
-            query.block_height_b,
+            query.block_height_b.max(0) as u64,
         ),
     )
     .await?;
@@ -783,13 +783,13 @@ pub async fn timeline_kv_handler(
     );
 
     let db = require_db(&app_state).await?;
-    let (entries, has_more, dropped, next_cursor) = db.get_kv_timeline(&query).await?;
+    let (entries, has_more, _truncated, _dropped, next_cursor) = db.get_kv_timeline(&query).await?;
 
     let meta = PaginationMeta {
         has_more,
         truncated: false,
         next_cursor,
-        dropped_rows: dropped_to_option(dropped),
+        dropped_rows: None,
     };
     let fields = parse_field_set(&query.fields)?;
     let decode = should_decode(&query.value_format)?;
@@ -851,7 +851,7 @@ pub async fn batch_kv_handler(
 
     use futures::stream::{self, StreamExt};
     let items: Vec<BatchResultItem> = stream::iter(body.keys.iter().map(|key| {
-        let scylladb = app_state.scylladb.clone();
+        let scylladb = app_state.db.clone();
         let predecessor_id = body.predecessor_id.clone();
         let current_account_id = body.current_account_id.clone();
         let key = key.clone();
@@ -866,10 +866,16 @@ pub async fn batch_kv_handler(
                 };
             };
             match db.get_kv_last(&predecessor_id, &current_account_id, &key).await {
-                Ok(value) => BatchResultItem {
+                Ok(Some(entry)) => BatchResultItem {
                     key,
-                    found: value.is_some(),
-                    value,
+                    found: true,
+                    value: Some(entry.value),
+                    error: None,
+                },
+                Ok(None) => BatchResultItem {
+                    key,
+                    found: false,
+                    value: None,
                     error: None,
                 },
                 Err(e) => {
@@ -931,7 +937,7 @@ pub async fn edges_handler(
     );
 
     let db = require_db(&app_state).await?;
-    let (sources, has_more, dropped) = db
+    let (sources, has_more, _dropped) = db
         .query_edges(
             &query.edge_type,
             &query.target,
@@ -946,7 +952,7 @@ pub async fn edges_handler(
         has_more,
         truncated: false,
         next_cursor,
-        dropped_rows: dropped_to_option(dropped),
+        dropped_rows: None,
     };
 
     Ok(HttpResponse::Ok().json(PaginatedResponse {
@@ -1059,7 +1065,7 @@ pub async fn watch_kv_handler(
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.parse().ok());
 
-    let scylladb = app_state.scylladb.clone();
+    let scylladb = app_state.db.clone();
     let predecessor_id = query.predecessor_id.clone();
     let current_account_id = query.current_account_id.clone();
     let key = query.key.clone();
@@ -1139,7 +1145,7 @@ impl Drop for WatchGuard {
 )]
 #[get("/v1/status")]
 pub async fn status_handler(app_state: web::Data<AppState>) -> HttpResponse {
-    let db = app_state.scylladb.read().await.clone();
+    let db = app_state.db.read().await.clone();
     let indexer_block = match db.as_ref() {
         Some(db) => db.get_indexer_block_height().await.ok().flatten(),
         None => None,

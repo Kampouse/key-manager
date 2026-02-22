@@ -1,5 +1,4 @@
 use actix_web::{error::ResponseError, http::StatusCode, HttpResponse};
-use scylla::DeserializeRow;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -19,69 +18,22 @@ pub const MAX_SCAN_LIMIT: usize = 1000;
 pub const MAX_CURSOR_LENGTH: usize = 1024;
 pub const PROJECT_ID: &str = "near-garden";
 
-// Raw row from ScyllaDB s_kv_last (matches table schema exactly)
-#[derive(DeserializeRow, Debug, Clone)]
-pub struct KvRow {
+// Internal types for Redis storage (JSON-serialized)
+// These are kept for backward compatibility with existing From implementations
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct KvHistoryEntry {
+    #[serde(rename = "accountId")]
     pub predecessor_id: String,
+    #[serde(rename = "contractId")]
     pub current_account_id: String,
     pub key: String,
     pub value: String,
-    pub block_height: i64,
-    pub block_timestamp: i64,
+    pub block_height: u64,
+    pub block_timestamp: u64,
+    pub order_id: u64,
     pub receipt_id: String,
     pub tx_hash: String,
-}
-
-// Raw row from ScyllaDB s_kv (history table with additional fields)
-#[derive(DeserializeRow, Debug, Clone)]
-pub struct KvHistoryRow {
-    pub predecessor_id: String,
-    pub current_account_id: String,
-    pub key: String,
-    pub block_height: i64,
-    pub order_id: i64,
-    pub value: String,
-    pub block_timestamp: i64,
-    pub receipt_id: String,
-    pub tx_hash: String,
-    pub signer_id: String,
-    pub shard_id: i32,
-    pub receipt_index: i32,
-    pub action_index: i32,
-}
-
-// Row from s_kv_by_block table (9 columns, no signer/shard/receipt_index/action_index)
-#[derive(DeserializeRow, Debug, Clone)]
-pub struct KvTimelineRow {
-    pub predecessor_id: String,
-    pub current_account_id: String,
-    pub block_height: i64,
-    pub key: String,
-    pub order_id: i64,
-    pub value: String,
-    pub block_timestamp: i64,
-    pub receipt_id: String,
-    pub tx_hash: String,
-}
-
-// Lightweight row for contract-based account queries (predecessor_id only)
-#[derive(DeserializeRow, Debug, Clone)]
-pub struct ContractAccountRow {
-    pub predecessor_id: String,
-}
-
-// Row for contract listing from kv_accounts (deduplicated in app code)
-#[derive(DeserializeRow, Debug, Clone)]
-pub struct ContractRow {
-    pub current_account_id: String,
-}
-
-// Row for contract listing from s_kv_last (includes key clustering column)
-#[derive(DeserializeRow, Debug, Clone)]
-pub struct ContractKeyRow {
-    pub current_account_id: String,
-    #[allow(dead_code)]
-    pub key: String,
 }
 
 // API response
@@ -167,62 +119,9 @@ impl KvEntry {
     }
 }
 
-/// Convert a ScyllaDB bigint (i64) to u64, clamping negatives to 0.
-/// ScyllaDB stores block heights/timestamps as bigint (i64) but they are
-/// logically unsigned. Negative values indicate upstream data issues.
+/// Convert a bigint (i64) to u64, clamping negatives to 0.
 pub fn bigint_to_u64(val: i64) -> u64 {
     val.max(0) as u64
-}
-
-impl From<KvRow> for KvEntry {
-    fn from(row: KvRow) -> Self {
-        let is_deleted = row.value == "null";
-        Self {
-            predecessor_id: row.predecessor_id,
-            current_account_id: row.current_account_id,
-            key: row.key,
-            value: row.value,
-            block_height: bigint_to_u64(row.block_height),
-            block_timestamp: bigint_to_u64(row.block_timestamp),
-            receipt_id: row.receipt_id,
-            tx_hash: row.tx_hash,
-            is_deleted,
-        }
-    }
-}
-
-impl From<KvHistoryRow> for KvEntry {
-    fn from(row: KvHistoryRow) -> Self {
-        let is_deleted = row.value == "null";
-        Self {
-            predecessor_id: row.predecessor_id,
-            current_account_id: row.current_account_id,
-            key: row.key,
-            value: row.value,
-            block_height: bigint_to_u64(row.block_height),
-            block_timestamp: bigint_to_u64(row.block_timestamp),
-            receipt_id: row.receipt_id,
-            tx_hash: row.tx_hash,
-            is_deleted,
-        }
-    }
-}
-
-impl From<KvTimelineRow> for KvEntry {
-    fn from(row: KvTimelineRow) -> Self {
-        let is_deleted = row.value == "null";
-        Self {
-            predecessor_id: row.predecessor_id,
-            current_account_id: row.current_account_id,
-            key: row.key,
-            value: row.value,
-            block_height: bigint_to_u64(row.block_height),
-            block_timestamp: bigint_to_u64(row.block_timestamp),
-            receipt_id: row.receipt_id,
-            tx_hash: row.tx_hash,
-            is_deleted,
-        }
-    }
 }
 
 // Pagination metadata returned in all paginated responses
@@ -802,13 +701,6 @@ impl From<anyhow::Error> for ApiError {
 
 // ===== Edges API types =====
 
-// Raw row from ScyllaDB kv_edges table
-#[derive(DeserializeRow, Debug, Clone)]
-pub struct EdgeRow {
-    pub source: String,
-    pub block_height: i64,
-}
-
 // GET /v1/kv/edges query params
 #[derive(Deserialize, Clone, utoipa::ToSchema, utoipa::IntoParams)]
 pub struct EdgesParams {
@@ -899,8 +791,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_kv_entry_from_row() {
-        let row = KvRow {
+    fn test_kv_entry_serialization() {
+        let entry = KvEntry {
             predecessor_id: "alice.near".to_string(),
             current_account_id: "social.near".to_string(),
             key: "profile".to_string(),
@@ -909,9 +801,9 @@ mod tests {
             block_timestamp: 1234567890123456789,
             receipt_id: "abc123".to_string(),
             tx_hash: "def456".to_string(),
+            is_deleted: false,
         };
 
-        let entry: KvEntry = row.into();
         assert_eq!(entry.predecessor_id, "alice.near");
         assert_eq!(entry.current_account_id, "social.near");
         assert_eq!(entry.key, "profile");
@@ -924,7 +816,7 @@ mod tests {
 
     #[test]
     fn test_kv_entry_is_deleted() {
-        let row = KvRow {
+        let entry = KvEntry {
             predecessor_id: "alice.near".to_string(),
             current_account_id: "social.near".to_string(),
             key: "profile".to_string(),
@@ -933,9 +825,9 @@ mod tests {
             block_timestamp: 200,
             receipt_id: "r".to_string(),
             tx_hash: "t".to_string(),
+            is_deleted: true,
         };
 
-        let entry: KvEntry = row.into();
         assert!(entry.is_deleted);
 
         // Verify isDeleted is serialized when true (camelCase)
@@ -945,7 +837,7 @@ mod tests {
 
     #[test]
     fn test_kv_entry_is_deleted_omitted_when_false() {
-        let row = KvRow {
+        let entry = KvEntry {
             predecessor_id: "alice.near".to_string(),
             current_account_id: "social.near".to_string(),
             key: "profile".to_string(),
@@ -954,9 +846,9 @@ mod tests {
             block_timestamp: 200,
             receipt_id: "r".to_string(),
             tx_hash: "t".to_string(),
+            is_deleted: false,
         };
 
-        let entry: KvEntry = row.into();
         assert!(!entry.is_deleted);
 
         // Verify isDeleted is omitted when false (camelCase)

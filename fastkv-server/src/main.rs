@@ -1,15 +1,18 @@
 mod handlers;
 mod models;
-mod scylladb;
+mod redis_db;
 mod social_handlers;
 mod tree;
+
+#[cfg(feature = "scylla-backend")]
+mod scylladb;
 
 use crate::handlers::{
     accounts_handler, batch_kv_handler, contracts_handler, diff_kv_handler, edges_count_handler,
     edges_handler, get_kv_handler, health_check, history_kv_handler, query_kv_handler,
     status_handler, timeline_kv_handler, watch_kv_handler, writers_handler,
 };
-use crate::scylladb::ScyllaDb;
+use crate::redis_db::RedisDb;
 use crate::social_handlers::{
     social_account_feed_handler, social_followers_handler, social_following_handler,
     social_get_handler, social_index_handler, social_keys_handler, social_profile_handler,
@@ -94,7 +97,7 @@ use crate::models::PROJECT_ID;
     info(
         title = "FastKV API",
         version = "1.0.0",
-        description = "Query FastData KV entries from ScyllaDB. This API provides access to NEAR Protocol data storage."
+        description = "Query FastData KV entries from Redis. This API provides access to NEAR Protocol data storage."
     ),
     tags(
         (name = "health", description = "Health check endpoints"),
@@ -106,7 +109,7 @@ struct ApiDoc;
 
 #[derive(Clone)]
 pub struct AppState {
-    pub scylladb: Arc<RwLock<Option<Arc<ScyllaDb>>>>,
+    pub db: Arc<RwLock<Option<Arc<RedisDb>>>>,
     pub chain_id: ChainId,
     /// Per-IP throttle for scan=1 requests on /v1/kv/accounts.
     pub scan_throttle: Arc<std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>>>,
@@ -121,7 +124,7 @@ async fn main() -> std::io::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "scylladb=info,near-garden=info,fastkv-server=info".into()),
+                .unwrap_or_else(|_| "redis_db=info,near-garden=info,fastkv-server=info".into()),
         )
         .init();
 
@@ -134,25 +137,17 @@ async fn main() -> std::io::Result<()> {
 
     tracing::info!(target: PROJECT_ID, %chain_id, "Configuration loaded");
 
-    // Validate DB env vars early (they're required by the background connection task)
-    for var in ["SCYLLA_URL", "SCYLLA_USERNAME", "SCYLLA_PASSWORD"] {
-        env::var(var).unwrap_or_else(|_| panic!("{var} must be set"));
-    }
-
-    let scylladb: Arc<RwLock<Option<Arc<ScyllaDb>>>> = Arc::new(RwLock::new(None));
-    tracing::info!(target: PROJECT_ID, "Database connection deferred to background task");
-
-    // Background reconnection task with exponential backoff
-    let reconnect_base_secs: u64 = env::var("DB_RECONNECT_INTERVAL_SECS")
-        .unwrap_or_else(|_| "5".to_string())
-        .parse()
-        .unwrap_or(5)
-        .max(5);
-    let reconnect_max_secs: u64 = 300;
+    // Redis connection
+    let chain_id_str = chain_id.to_string();
+    let db: Arc<RwLock<Option<Arc<RedisDb>>>> = Arc::new(RwLock::new(None));
+    
+    // Background reconnection task
     {
-        let scylladb = Arc::clone(&scylladb);
+        let db = Arc::clone(&db);
+        let chain_id_clone = chain_id_str.clone();
         tokio::spawn(async move {
-            let mut delay_secs = reconnect_base_secs;
+            let mut delay_secs = 5u64;
+            let reconnect_max_secs = 300u64;
             let mut is_initial = true;
             loop {
                 if is_initial {
@@ -160,32 +155,24 @@ async fn main() -> std::io::Result<()> {
                 } else {
                     tokio::time::sleep(std::time::Duration::from_secs(delay_secs)).await;
                 }
-                if scylladb.read().await.is_some() {
-                    delay_secs = reconnect_base_secs;
+                if db.read().await.is_some() {
+                    delay_secs = 5;
                     continue;
                 }
-                tracing::info!(target: PROJECT_ID, delay_secs, "Attempting to connect to ScyllaDB...");
-                let session = match ScyllaDb::new_scylla_session().await {
-                    Ok(s) => s,
-                    Err(e) => {
-                        tracing::warn!(target: PROJECT_ID, error = %e, delay_secs, "ScyllaDB connection failed");
-                        delay_secs = (delay_secs * 2).min(reconnect_max_secs);
-                        continue;
-                    }
-                };
-                if let Err(e) = ScyllaDb::test_connection(&session).await {
-                    tracing::warn!(target: PROJECT_ID, error = %e, delay_secs, "ScyllaDB connection test failed");
-                    delay_secs = (delay_secs * 2).min(reconnect_max_secs);
-                    continue;
-                }
-                match ScyllaDb::new(chain_id, session).await {
-                    Ok(db) => {
-                        *scylladb.write().await = Some(Arc::new(db));
-                        delay_secs = reconnect_base_secs;
-                        tracing::info!(target: PROJECT_ID, "Successfully connected to ScyllaDB");
+                tracing::info!(target: PROJECT_ID, delay_secs, "Attempting to connect to Redis...");
+                match RedisDb::new(chain_id_clone.clone()).await {
+                    Ok(redis_db) => {
+                        if let Err(e) = redis_db.health_check().await {
+                            tracing::warn!(target: PROJECT_ID, error = %e, delay_secs, "Redis connection test failed");
+                            delay_secs = (delay_secs * 2).min(reconnect_max_secs);
+                            continue;
+                        }
+                        *db.write().await = Some(Arc::new(redis_db));
+                        delay_secs = 5;
+                        tracing::info!(target: PROJECT_ID, "Successfully connected to Redis");
                     }
                     Err(e) => {
-                        tracing::warn!(target: PROJECT_ID, error = %e, delay_secs, "ScyllaDB initialization failed");
+                        tracing::warn!(target: PROJECT_ID, error = %e, delay_secs, "Redis connection failed");
                         delay_secs = (delay_secs * 2).min(reconnect_max_secs);
                     }
                 }
@@ -197,12 +184,12 @@ async fn main() -> std::io::Result<()> {
     let indexer_block_cache = Arc::new(AtomicU64::new(0));
     {
         let cache = Arc::clone(&indexer_block_cache);
-        let scylladb = Arc::clone(&scylladb);
+        let db = Arc::clone(&db);
         tokio::spawn(async move {
             loop {
-                let db = scylladb.read().await.clone();
-                if let Some(ref db) = db {
-                    if let Ok(Some(h)) = db.get_indexer_block_height().await {
+                let db_guard = db.read().await.clone();
+                if let Some(ref redis_db) = db_guard {
+                    if let Ok(Some(h)) = redis_db.get_indexer_block_height().await {
                         cache.store(h, Ordering::Release);
                     }
                 }
@@ -236,7 +223,7 @@ async fn main() -> std::io::Result<()> {
         App::new()
             .app_data(web::JsonConfig::default().limit(262_144))
             .app_data(web::Data::new(AppState {
-                scylladb: Arc::clone(&scylladb),
+                db: Arc::clone(&db),
                 chain_id,
                 scan_throttle: scan_throttle.clone(),
                 watch_count: Arc::new(std::sync::atomic::AtomicUsize::new(0)),

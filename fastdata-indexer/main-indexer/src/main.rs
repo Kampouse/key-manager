@@ -1,10 +1,11 @@
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use dotenvy::dotenv;
 use fastnear_neardata_fetcher::fetcher;
 use fastnear_primitives::near_indexer_primitives::types::BlockHeight;
 use fastnear_primitives::near_primitives::views::{ActionView, ReceiptEnumView};
 use fastnear_primitives::types::ChainId;
 use futures::stream::{self, StreamExt};
-use scylladb::{FastData, ScyllaDb, UNIVERSAL_SUFFIX};
+use redis_db::{FastData, RedisDb, UNIVERSAL_SUFFIX};
 use std::env;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -21,7 +22,7 @@ async fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("neardata-fetcher=info,fastdata-indexer=info,scylladb=info")),
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("neardata-fetcher=info,fastdata-indexer=info,redis_db=info")),
         )
         .init();
 
@@ -30,21 +31,17 @@ async fn main() {
         .try_into()
         .expect("Invalid chain id");
 
-    let scylla_session = ScyllaDb::new_scylla_session()
+    let redis_db = RedisDb::new(chain_id.to_string())
         .await
-        .expect("Can't create scylla session");
+        .expect("Can't connect to Redis");
 
-    ScyllaDb::test_connection(&scylla_session)
+    redis_db.test_connection()
         .await
-        .expect("Can't connect to scylla");
+        .expect("Can't connect to Redis");
 
-    tracing::info!(target: PROJECT_ID, "Connected to Scylla");
+    tracing::info!(target: PROJECT_ID, "Connected to Redis");
 
-    let scylladb = ScyllaDb::new(chain_id, scylla_session, true)
-        .await
-        .expect("Can't create scylla db");
-
-    let last_processed_block_height = scylladb
+    let last_processed_block_height = redis_db
         .get_last_processed_block_height(UNIVERSAL_SUFFIX)
         .await
         .expect("Error getting last processed block height");
@@ -167,15 +164,16 @@ async fn main() {
                                     );
                                     continue;
                                 }
+                                let encoded_data = BASE64.encode(args.as_slice());
                                 data.push(FastData {
-                                    receipt_id,
+                                    receipt_id: receipt_id.to_string(),
                                     action_index: u32::try_from(action_index).expect("action_index exceeds u32"),
                                     suffix: suffix.to_string(),
-                                    data: args.to_vec(),
-                                    tx_hash,
-                                    signer_id: signer_id.clone(),
-                                    predecessor_id: predecessor_id.clone(),
-                                    current_account_id: current_account_id.clone(),
+                                    data: encoded_data,
+                                    tx_hash: tx_hash.map(|h| h.to_string()),
+                                    signer_id: signer_id.to_string(),
+                                    predecessor_id: predecessor_id.to_string(),
+                                    current_account_id: current_account_id.to_string(),
                                     block_height,
                                     block_timestamp,
                                     shard_id: shard.shard_id.into(),
@@ -191,14 +189,14 @@ async fn main() {
         let current_time = std::time::SystemTime::now();
         let duration = current_time
             .duration_since(last_block_update)
-            .unwrap_or(block_update_interval); // Treat as elapsed if clock adjusted
+            .unwrap_or(block_update_interval);
         let mut need_to_save_last_processed_block_height = duration >= block_update_interval;
 
         if !data.is_empty() {
-            tracing::info!(target: PROJECT_ID, "Inserting {} fastdata rows into Scylla", data.len());
+            tracing::info!(target: PROJECT_ID, "Inserting {} fastdata rows into Redis", data.len());
 
             let mut success = false;
-            let delays = [0, 1, 2, 4]; // 0 for first attempt, then 1s, 2s, 4s for retries
+            let delays = [0, 1, 2, 4];
 
             for (attempt, &delay_secs) in delays.iter().enumerate() {
                 if delay_secs > 0 {
@@ -206,7 +204,7 @@ async fn main() {
                     tokio::time::sleep(std::time::Duration::from_secs(delay_secs)).await;
                 }
 
-                let result = stream::iter(data.iter().map(|fastdata| scylladb.add_data(fastdata.clone())))
+                let result = stream::iter(data.iter().map(|fastdata| redis_db.add_data(fastdata)))
                     .buffer_unordered(100)
                     .collect::<Vec<_>>()
                     .await
@@ -217,7 +215,7 @@ async fn main() {
                     success = true;
                     break;
                 } else if let Err(e) = result {
-                    tracing::error!(target: PROJECT_ID, "Error inserting data into Scylla (attempt {}): {:?}", attempt + 1, e);
+                    tracing::error!(target: PROJECT_ID, "Error inserting data into Redis (attempt {}): {:?}", attempt + 1, e);
                 }
             }
 
@@ -242,7 +240,6 @@ async fn main() {
         if need_to_save_last_processed_block_height {
             tracing::info!(target: PROJECT_ID, "Saving last processed block height: {}", block_height);
 
-            // Retry checkpoint write with delays
             let checkpoint_delays = [1, 2, 4];
             let mut checkpoint_success = false;
 
@@ -256,7 +253,7 @@ async fn main() {
                     tokio::time::sleep(std::time::Duration::from_secs(delay_secs)).await;
                 }
 
-                match scylladb.set_last_processed_block_height(UNIVERSAL_SUFFIX, block_height).await {
+                match redis_db.set_last_processed_block_height(UNIVERSAL_SUFFIX, block_height).await {
                     Ok(_) => {
                         checkpoint_success = true;
                         break;
@@ -276,7 +273,7 @@ async fn main() {
                 consecutive_checkpoint_failures = 0;
             } else {
                 consecutive_checkpoint_failures += 1;
-                last_block_update = current_time; // Prevent retry storm on every subsequent block
+                last_block_update = current_time;
                 tracing::error!(
                     target: PROJECT_ID,
                     "Checkpoint failed ({}/{} consecutive). Will reprocess from last checkpoint on restart.",
