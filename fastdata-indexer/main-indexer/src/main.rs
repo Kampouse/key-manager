@@ -6,6 +6,7 @@ use fastnear_primitives::near_primitives::views::{ActionView, ReceiptEnumView};
 use fastnear_primitives::types::ChainId;
 use futures::stream::{self, StreamExt};
 use redis_db::{FastData, RedisDb, UNIVERSAL_SUFFIX};
+use std::collections::HashSet;
 use std::env;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -30,6 +31,24 @@ async fn main() {
         .expect("CHAIN_ID required")
         .try_into()
         .expect("Invalid chain id");
+
+    // Optional account filter - comma-separated list of accounts to index
+    // If not set, indexes all accounts (default behavior)
+    let filter_accounts: Option<HashSet<String>> = env::var("FILTER_ACCOUNTS")
+        .ok()
+        .map(|accounts| {
+            accounts
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect()
+        });
+
+    if let Some(ref accounts) = filter_accounts {
+        tracing::info!(target: PROJECT_ID, "Account filtering enabled for: {:?}", accounts);
+    } else {
+        tracing::info!(target: PROJECT_ID, "Account filtering disabled - indexing all accounts");
+    }
 
     let redis_db = RedisDb::new(chain_id.to_string())
         .await
@@ -164,6 +183,19 @@ async fn main() {
                                     );
                                     continue;
                                 }
+
+                                // Account filtering - skip if not in filter list
+                                if let Some(ref filter) = filter_accounts {
+                                    let matches = filter.contains(&predecessor_id.to_string())
+                                        || filter.contains(&signer_id.to_string())
+                                        || filter.contains(&current_account_id.to_string());
+                                    
+                                    if !matches {
+                                        // Skip this entry - account not in filter
+                                        continue;
+                                    }
+                                }
+
                                 let encoded_data = BASE64.encode(args.as_slice());
                                 data.push(FastData {
                                     receipt_id: receipt_id.to_string(),
