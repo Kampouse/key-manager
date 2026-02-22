@@ -17,14 +17,25 @@ key-manager/
 
 ### 1. Deploy Contract WASM
 
-Build the TEE contract:
+**Pre-compiled WASM:**
+```
+v0.3.1 (Latest - Security fix):
+URL: https://github.com/Kampouse/key-manager/releases/download/v0.3.1/key-manager.wasm
+Hash: b03635bb8b2678d6e27c532ee336b9d63b7a50c5807aa48c0699dca6f7bf98c1
+
+v0.3.0 (Legacy - WrapKey/UnwrapKey):
+URL: https://github.com/Kampouse/key-manager/releases/download/v0.3.0/key-manager.wasm
+Hash: 63b6cbcae38f1da7b6d105f317b329bded6c81145a1baa1f7792c6e2be25cf84
+```
+
+**Or build from source:**
 ```bash
 cd contract
 cargo build --target wasm32-wasip1 --release
 # Output: target/wasm32-wasip1/release/key-manager.wasm
 ```
 
-Deploy to OutLayer:
+**Deploy to OutLayer:**
 ```bash
 # Via OutLayer dashboard or CLI
 outlayer deploy --name your-project key-manager.wasm
