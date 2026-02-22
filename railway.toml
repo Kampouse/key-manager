@@ -1,6 +1,5 @@
 [build]
 builder = "DOCKERFILE"
-dockerfilePath = "fastkv-server/Dockerfile"
 
 [deploy]
 restartPolicyType = "on_failure"
