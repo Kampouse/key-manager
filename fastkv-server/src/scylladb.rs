@@ -307,7 +307,7 @@ impl ScyllaDb {
             ).await?,
             reverse_kv: Self::prepare_query(
                 &scylla_session,
-                &format!("SELECT {} FROM {} WHERE current_account_id = ? AND key = ? ORDER BY key DESC, block_height DESC, order_id DESC, predecessor_id DESC", columns, reverse_view_name),
+                &format!("SELECT {} FROM {} WHERE current_account_id = ? AND key = ? ORDER BY block_height DESC, order_id DESC, predecessor_id DESC", columns, reverse_view_name),
                 scylla::frame::types::Consistency::LocalOne,
             ).await?,
             reverse_list: Self::prepare_query(
