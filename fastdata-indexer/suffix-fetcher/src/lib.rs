@@ -1,8 +1,7 @@
-use scylladb::{FastData, ScyllaDb, UNIVERSAL_SUFFIX};
+use redis_db::{FastData, RedisDb, UNIVERSAL_SUFFIX};
 
 use fastnear_primitives::near_indexer_primitives::types::BlockHeight;
 use fastnear_primitives::types::ChainId;
-use futures::StreamExt;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -23,47 +22,36 @@ impl From<FastData> for SuffixFetcherUpdate {
 }
 
 pub struct SuffixFetcher {
-    pub scylladb: Arc<ScyllaDb>,
+    pub redis_db: Arc<RedisDb>,
+    pub chain_id: ChainId,
 }
 
-/// Configuration for the `SuffixFetcher`.
-///
-/// This struct defines the parameters used to configure the behavior of the fetcher.
 pub struct SuffixFetcherConfig {
-    /// The suffix to be fetched. This is a unique identifier used to determine
-    /// the specific data.
     pub suffix: String,
-
-    /// The optional starting block height for the fetcher. If provided, the fetcher
-    /// will begin retrieving data from this block height. If `None`, defaults to 0.
     pub start_block_height: Option<BlockHeight>,
-
-    /// The duration for which the fetcher will sleep while waiting for the next universal last
-    /// processed block height. Consider using around 500ms.
     pub sleep_duration: Duration,
 }
 
 impl SuffixFetcher {
-    pub async fn new(chain_id: ChainId, scylladb: Option<Arc<ScyllaDb>>) -> anyhow::Result<Self> {
-        let scylladb = match scylladb {
-            Some(scylladb) => scylladb,
+    pub async fn new(chain_id: ChainId, redis_db: Option<Arc<RedisDb>>) -> anyhow::Result<Self> {
+        let redis_db = match redis_db {
+            Some(db) => db,
             None => {
-                let scylla_session = ScyllaDb::new_scylla_session()
+                let db = RedisDb::new(chain_id.to_string())
                     .await
-                    .expect("Can't create scylla session");
-                ScyllaDb::test_connection(&scylla_session)
+                    .expect("Can't connect to Redis");
+                db.test_connection()
                     .await
-                    .expect("Can't connect to scylla");
-                tracing::info!(target: FETCHER, "Connected to Scylla");
-
-                Arc::new(ScyllaDb::new(chain_id, scylla_session, false).await?)
+                    .expect("Can't connect to Redis");
+                tracing::info!(target: FETCHER, "Connected to Redis");
+                Arc::new(db)
             }
         };
-        Ok(Self { scylladb })
+        Ok(Self { redis_db, chain_id })
     }
 
-    pub fn get_scylladb(&self) -> Arc<ScyllaDb> {
-        self.scylladb.clone()
+    pub fn get_redis_db(&self) -> Arc<RedisDb> {
+        self.redis_db.clone()
     }
 
     pub async fn start(
@@ -74,9 +62,11 @@ impl SuffixFetcher {
     ) {
         let mut from_block_height = config.start_block_height.unwrap_or(0);
         tracing::info!(target: FETCHER, "Starting suffix fetcher with suffix {:?} from {}", config.suffix, from_block_height);
+        
         while is_running.load(Ordering::SeqCst) {
+            // Get last processed block height from Redis
             let last_block_height = match self
-                .scylladb
+                .redis_db
                 .get_last_processed_block_height(UNIVERSAL_SUFFIX)
                 .await
             {
@@ -91,24 +81,27 @@ impl SuffixFetcher {
                     continue;
                 }
             };
+            
             let Some(last_block_height) = last_block_height else {
                 tracing::info!(target: FETCHER, "No last processed block height found");
                 tokio::time::sleep(Duration::from_secs(1)).await;
                 continue;
             };
+            
             if from_block_height > last_block_height {
                 tracing::debug!(target: FETCHER, "Waiting for new blocks");
                 tokio::time::sleep(config.sleep_duration).await;
                 continue;
             }
+            
             tracing::info!(target: FETCHER, "Fetching blocks from {} to {}", from_block_height, last_block_height);
 
+            // Fetch data from Redis for the range
             let mut range_success = false;
-            let mut range_last_block: Option<BlockHeight> = None; // Tracks actual progress across retries
-            let delays = [0, 1, 2, 4]; // 0 for first attempt, then 1s, 2s, 4s for retries
+            let mut range_last_block: Option<BlockHeight> = None;
+            let delays = [0, 1, 2, 4];
 
             for (attempt, &delay_secs) in delays.iter().enumerate() {
-                // Reset per-attempt state to avoid stale values corrupting retry logic (CRIT-6)
                 let mut last_fastdata_block_height: Option<BlockHeight> = None;
 
                 if delay_secs > 0 {
@@ -116,80 +109,35 @@ impl SuffixFetcher {
                     tokio::time::sleep(Duration::from_secs(delay_secs)).await;
                 }
 
-                let mut stream = match self
-                    .scylladb
-                    .get_suffix_data(&config.suffix, from_block_height, last_block_height)
-                    .await
-                {
-                    Ok(s) => s,
-                    Err(e) => {
-                        tracing::error!(
-                            target: FETCHER,
-                            "Error getting suffix data (attempt {}): {:?}",
-                            attempt + 1, e
-                        );
-                        // Continue to next retry attempt
-                        continue;
-                    }
-                };
+                // Stream suffix data from Redis
+                let result = self.stream_suffix_data(
+                    &config.suffix,
+                    from_block_height,
+                    last_block_height,
+                    &sink,
+                    is_running.clone(),
+                    &mut last_fastdata_block_height,
+                ).await;
 
-                let mut had_error = false;
-                loop {
-                    let fastdata = match stream.next().await {
-                        Some(item) => item,
-                        None => break, // Stream exhausted normally
-                    };
-                    if !is_running.load(Ordering::SeqCst) {
+                match result {
+                    Ok(had_data) => {
                         range_success = true;
+                        if let Some(h) = last_fastdata_block_height {
+                            range_last_block = Some(h);
+                        }
+                        tracing::debug!(target: FETCHER, "Range scan complete, had_data={}", had_data);
                         break;
                     }
-                    match fastdata {
-                        Ok(fastdata) => {
-                            if let Some(last_fastdata_block_height) = last_fastdata_block_height {
-                                if fastdata.block_height > last_fastdata_block_height
-                                    && sink.send(SuffixFetcherUpdate::EndOfRange(
-                                        last_fastdata_block_height,
-                                    ))
-                                    .await
-                                    .is_err()
-                                {
-                                    tracing::warn!(target: FETCHER, "Channel closed, stopping");
-                                    range_success = true;
-                                    break;
-                                }
-                            }
-                            last_fastdata_block_height = Some(fastdata.block_height);
-                            if sink.send(fastdata.into())
-                                .await
-                                .is_err() {
-                                tracing::warn!(target: FETCHER, "Channel closed, stopping");
-                                range_success = true;
-                                break;
-                            }
-                        }
-                        Err(e) => {
-                            tracing::error!(target: FETCHER, "Error fetching fastdata (attempt {}): {:?}", attempt + 1, e);
-                            had_error = true;
-                            break;
-                        }
+                    Err(e) => {
+                        tracing::error!(target: FETCHER, "Error fetching suffix data (attempt {}): {:?}", attempt + 1, e);
                     }
-                }
-
-                // Propagate actual progress to outer scope for accurate checkpointing
-                if let Some(h) = last_fastdata_block_height {
-                    range_last_block = Some(h);
-                }
-
-                if !had_error {
-                    range_success = true;
-                    break;
                 }
             }
 
             if !range_success {
                 tracing::error!(
                     target: FETCHER,
-                    "Failed to fetch range [{}, {}] after {} retries. Halting to prevent data loss.",
+                    "Failed to fetch range [{}, {}] after {} retries.",
                     from_block_height, last_block_height, delays.len() - 1
                 );
                 is_running.store(false, Ordering::SeqCst);
@@ -198,7 +146,6 @@ impl SuffixFetcher {
 
             // Checkpoint based on actual progress
             if let Some(checkpoint_height) = range_last_block {
-                // Rows were processed — checkpoint at last processed block
                 if sink.send(SuffixFetcherUpdate::EndOfRange(checkpoint_height))
                     .await
                     .is_err() {
@@ -207,7 +154,6 @@ impl SuffixFetcher {
                 }
                 from_block_height = checkpoint_height + 1;
             } else if is_running.load(Ordering::SeqCst) {
-                // Empty range (no rows existed) and not interrupted — safe to advance
                 if sink.send(SuffixFetcherUpdate::EndOfRange(last_block_height))
                     .await
                     .is_err() {
@@ -216,8 +162,94 @@ impl SuffixFetcher {
                 }
                 from_block_height = last_block_height + 1;
             }
-            // If !is_running && no rows processed: Ctrl-C before progress — don't advance checkpoint
         }
         tracing::info!(target: FETCHER, "Stopped suffix fetcher");
+    }
+
+    async fn stream_suffix_data(
+        &self,
+        suffix: &str,
+        from_block: BlockHeight,
+        to_block: BlockHeight,
+        sink: &mpsc::Sender<SuffixFetcherUpdate>,
+        is_running: Arc<AtomicBool>,
+        last_block: &mut Option<BlockHeight>,
+    ) -> anyhow::Result<bool> {
+        use redis::{AsyncCommands, Client};
+        
+        let redis_url = std::env::var("REDIS_URL")
+            .unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
+        let client = Client::open(redis_url.as_str())?;
+        let mut conn = client.get_multiplexed_async_connection().await?;
+        
+        // Pattern for fastdata keys: fastdata:{chain_id}:{suffix}:{block_height}:{receipt_id}
+        let pattern = format!("fastdata:{}:{}:*", self.chain_id, suffix);
+        
+        let mut cursor: u64 = 0;
+        let mut had_data = false;
+        
+        loop {
+            if !is_running.load(Ordering::SeqCst) {
+                return Ok(true);
+            }
+            
+            let (new_cursor, keys): (u64, Vec<String>) = redis::cmd("SCAN")
+                .arg(cursor)
+                .arg("MATCH")
+                .arg(&pattern)
+                .arg("COUNT")
+                .arg(100)
+                .query_async(&mut conn)
+                .await?;
+            
+            for key in keys {
+                tracing::info!(target: FETCHER, "Processing key: {}", key);
+                // Parse block height from key
+                let parts: Vec<&str> = key.split(':').collect();
+                if parts.len() < 5 {
+                    tracing::warn!(target: FETCHER, "Key has wrong format: {}", key);
+                    continue;
+                }
+                if let Ok(block_height) = parts[3].parse::<u64>() {
+                    tracing::info!(target: FETCHER, "Parsed block_height {} from key", block_height);
+                    if block_height < from_block || block_height > to_block {
+                        tracing::debug!(target: FETCHER, "Skipping block {} (out of range {}-{})", block_height, from_block, to_block);
+                        continue;
+                    }
+                    
+                    // Get the data
+                    let data: Option<String> = conn.get(&key).await?;
+                    if let Some(json) = data {
+                        tracing::info!(target: FETCHER, "Got fastdata JSON for key {}: {} bytes", key, json.len());
+                        match serde_json::from_str::<FastData>(&json) {
+                            Ok(fastdata) => {
+                                tracing::info!(target: FETCHER, "Successfully parsed FastData: block={} receipt={}", fastdata.block_height, fastdata.receipt_id);
+                                had_data = true;
+                                *last_block = Some(fastdata.block_height);
+                                
+                                if sink.send(fastdata.into()).await.is_err() {
+                                    tracing::warn!(target: FETCHER, "Channel closed, stopping");
+                                    return Ok(true);
+                                }
+                            }
+                            Err(e) => {
+                                tracing::error!(target: FETCHER, "Failed to parse FastData from {}: {:?}", key, e);
+                            }
+                        }
+                    } else {
+                        tracing::warn!(target: FETCHER, "No data found for key {}", key);
+                    }
+                } else {
+                    tracing::warn!(target: FETCHER, "Failed to parse block_height from key {}", key);
+                }
+            }
+            
+            cursor = new_cursor;
+            if cursor == 0 {
+                break;
+            }
+        }
+        
+        Ok(had_data)
     }
 }
