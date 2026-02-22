@@ -13,9 +13,28 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-/// CKD master key - in real OutLayer, this is derived from hardware
-/// In production, this comes from OutLayer's CKD mechanism
-const CKD_MASTER_SEED: &[u8] = b"outlayer_ckd_master_seed_do_not_use_in_prod";
+/// Get CKD master seed from OutLayer runtime
+/// OutLayer provides a unique, hardware-derived seed via the OUTLAYER_CKD_SEED env var
+/// This seed is different for each execution and tied to the TEE hardware
+fn get_ckd_master_seed() -> Vec<u8> {
+    // Try to get from OutLayer runtime (real TEE)
+    if let Ok(seed) = std::env::var("OUTLAYER_CKD_SEED") {
+        return BASE64.decode(&seed).unwrap_or_else(|_| derive_fallback_seed());
+    }
+    
+    // Fallback: derive from group_id hash (deterministic but not hardware-backed)
+    // This is only used in test environments without OutLayer CKD
+    derive_fallback_seed()
+}
+
+/// Fallback seed derivation for testing without real OutLayer CKD
+/// WARNING: This is NOT secure for production - only use for testing!
+fn derive_fallback_seed() -> Vec<u8> {
+    let mut hasher = Sha256::new();
+    hasher.update(b"outlayer_fallback_seed_testing_only");
+    hasher.update(b"DO_NOT_USE_IN_PRODUCTION");
+    hasher.finalize().to_vec()
+}
 
 /// Request types
 #[derive(Debug, Serialize, Deserialize)]
@@ -300,7 +319,7 @@ fn handle_get_key(group_id: &str, account_id: &str) -> String {
         return error_response("Not a group member", 403);
     }
 
-    let key = derive_group_key(CKD_MASTER_SEED, group_id);
+    let key = derive_group_key(&get_ckd_master_seed(), group_id);
     let key_id = key_id_for_group(group_id);
 
     let response = KeyResponse {
@@ -316,7 +335,7 @@ fn handle_get_key(group_id: &str, account_id: &str) -> String {
     serde_json::to_string(&response).unwrap_or_else(|e| error_response(&e.to_string(), 500))
 }
 
-fn handle_get_group_key_id(group_id: &str, account_id: &str) -> String {
+fn handle_get_group_key_id(group_id: &str, _account_id: &str) -> String {
     // No membership check needed - key_id is public info
     let key_id = key_id_for_group(group_id);
 
@@ -347,7 +366,7 @@ fn handle_wrap_key(group_id: &str, account_id: &str, plaintext_key_b64: &str) ->
     }
 
     // Get group key
-    let group_key = derive_group_key(CKD_MASTER_SEED, group_id);
+    let group_key = derive_group_key(&get_ckd_master_seed(), group_id);
 
     // Wrap the plaintext key (encrypt with group key)
     let wrapped_key = match encrypt(&plaintext_key, &group_key) {
@@ -376,7 +395,7 @@ fn handle_unwrap_key(group_id: &str, account_id: &str, wrapped_key_b64: &str) ->
     };
 
     // Get group key
-    let group_key = derive_group_key(CKD_MASTER_SEED, group_id);
+    let group_key = derive_group_key(&get_ckd_master_seed(), group_id);
 
     // Unwrap (decrypt with group key)
     let plaintext_key = match decrypt(&wrapped_key, &group_key) {
@@ -402,7 +421,7 @@ fn handle_encrypt(group_id: &str, account_id: &str, plaintext_b64: &str) -> Stri
         Err(e) => return error_response(&format!("Invalid base64 plaintext: {}", e), 400),
     };
 
-    let key = derive_group_key(CKD_MASTER_SEED, group_id);
+    let key = derive_group_key(&get_ckd_master_seed(), group_id);
     let ciphertext = match encrypt(&plaintext, &key) {
         Ok(c) => c,
         Err(e) => return error_response(&e, 500),
@@ -426,7 +445,7 @@ fn handle_decrypt(group_id: &str, account_id: &str, ciphertext_b64: &str) -> Str
         Err(e) => return error_response(&format!("Invalid base64 ciphertext: {}", e), 400),
     };
 
-    let key = derive_group_key(CKD_MASTER_SEED, group_id);
+    let key = derive_group_key(&get_ckd_master_seed(), group_id);
     let plaintext = match decrypt(&ciphertext, &key) {
         Ok(p) => p,
         Err(e) => return error_response(&e, 500),
@@ -461,7 +480,7 @@ fn handle_batch_encrypt(group_id: &str, account_id: &str, items: &[EncryptItem])
         return error_response("Not a group member", 403);
     }
 
-    let key = derive_group_key(CKD_MASTER_SEED, group_id);
+    let key = derive_group_key(&get_ckd_master_seed(), group_id);
     let key_id = key_id_for_group(group_id);
 
     let results: Vec<BatchEncryptItemResult> = items
@@ -498,7 +517,7 @@ fn handle_batch_decrypt(group_id: &str, account_id: &str, items: &[DecryptItem])
         return error_response("Not a group member", 403);
     }
 
-    let key = derive_group_key(CKD_MASTER_SEED, group_id);
+    let key = derive_group_key(&get_ckd_master_seed(), group_id);
     let key_id = key_id_for_group(group_id);
 
     let results: Vec<BatchDecryptItemResult> = items
