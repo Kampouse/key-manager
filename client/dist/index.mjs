@@ -212,83 +212,141 @@ var PrivateKV = class {
 };
 
 // src/adapters/fastkv.ts
+import { $fetch } from "ofetch";
 var FastKVAdapter = class {
   constructor(config) {
-    this.apiUrl = config.apiUrl;
     this.accountId = config.accountId;
     this.contractId = config.contractId || "contextual.near";
-    this.fetchFn = config.fetch || fetch;
+    this.fetch = config.fetch || $fetch.create({
+      baseURL: config.apiUrl,
+      headers: {
+        "Content-Type": "application/json"
+      },
+      onRequestError({ error }) {
+        console.error("FastKV request error:", error);
+      }
+    });
   }
   async set(key, entry) {
-    const response = await this.fetchFn(`${this.apiUrl}/v1/kv/set`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        accountId: this.accountId,
-        contractId: this.contractId,
-        key,
-        value: JSON.stringify(entry)
-      })
-    });
-    if (!response.ok) {
-      throw new Error(`FastKV set failed: ${await response.text()}`);
+    try {
+      const response = await this.fetch("/v1/kv/set", {
+        method: "POST",
+        body: {
+          accountId: this.accountId,
+          contractId: this.contractId,
+          key,
+          value: JSON.stringify(entry)
+        }
+      });
+      return { txHash: response.txHash };
+    } catch (error) {
+      if (error instanceof Error) {
+        throw new Error(
+          `FastKV set failed
+Key: ${key}
+Error: ${error.message}`
+        );
+      }
+      throw error;
     }
-    const data = await response.json();
-    return { txHash: data.txHash };
   }
   async get(key) {
-    const url = new URL(`${this.apiUrl}/v1/kv/get`);
-    url.searchParams.set("accountId", this.accountId);
-    url.searchParams.set("contractId", this.contractId);
-    url.searchParams.set("key", key);
-    url.searchParams.set("fields", "value");
-    const response = await this.fetchFn(url.toString());
-    if (!response.ok) {
-      if (response.status === 404) return null;
-      throw new Error(`FastKV get failed: ${await response.text()}`);
+    try {
+      const response = await this.fetch("/v1/kv/get", {
+        method: "GET",
+        query: {
+          accountId: this.accountId,
+          contractId: this.contractId,
+          key,
+          fields: "value"
+        },
+        onResponse({ response: response2 }) {
+          if (response2.status === 404) {
+            throw new Error("NOT_FOUND");
+          }
+        }
+      });
+      if (!response.data?.value) {
+        return null;
+      }
+      return JSON.parse(response.data.value);
+    } catch (error) {
+      if (error instanceof Error && error.message === "NOT_FOUND") {
+        return null;
+      }
+      if (error instanceof Error) {
+        throw new Error(
+          `FastKV get failed
+Key: ${key}
+Error: ${error.message}`
+        );
+      }
+      throw error;
     }
-    const json = await response.json();
-    if (!json.data?.value) return null;
-    return JSON.parse(json.data.value);
   }
   async delete(key) {
-    const response = await this.fetchFn(`${this.apiUrl}/v1/kv/delete`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        accountId: this.accountId,
-        contractId: this.contractId,
-        key
-      })
-    });
-    if (!response.ok) {
-      throw new Error(`FastKV delete failed: ${await response.text()}`);
+    try {
+      const response = await this.fetch("/v1/kv/delete", {
+        method: "POST",
+        body: {
+          accountId: this.accountId,
+          contractId: this.contractId,
+          key
+        }
+      });
+      return { txHash: response.txHash };
+    } catch (error) {
+      if (error instanceof Error) {
+        throw new Error(
+          `FastKV delete failed
+Key: ${key}
+Error: ${error.message}`
+        );
+      }
+      throw error;
     }
-    const data = await response.json();
-    return { txHash: data.txHash };
   }
   async list(prefix = "") {
-    const url = new URL(`${this.apiUrl}/v1/kv/query`);
-    url.searchParams.set("accountId", this.accountId);
-    url.searchParams.set("contractId", this.contractId);
-    url.searchParams.set("key_prefix", prefix);
-    url.searchParams.set("exclude_deleted", "true");
-    url.searchParams.set("fields", "key");
-    const response = await this.fetchFn(url.toString());
-    if (!response.ok) {
-      throw new Error(`FastKV query failed: ${await response.text()}`);
+    try {
+      const response = await this.fetch("/v1/kv/query", {
+        method: "GET",
+        query: {
+          accountId: this.accountId,
+          contractId: this.contractId,
+          key_prefix: prefix,
+          exclude_deleted: "true",
+          fields: "key"
+        }
+      });
+      return (response.data || []).map((e) => e.key);
+    } catch (error) {
+      if (error instanceof Error) {
+        throw new Error(
+          `FastKV query failed
+Prefix: ${prefix}
+Error: ${error.message}`
+        );
+      }
+      throw error;
     }
-    const json = await response.json();
-    return (json.data || []).map((e) => e.key);
   }
 };
 
 // src/adapters/outlayer.ts
+var DEFAULT_CONTRACTS = {
+  mainnet: "outlayer.near",
+  testnet: "outlayer.testnet"
+};
+var DEFAULT_DEPOSIT = "0.05 NEAR";
+var DEFAULT_GAS = "300000000000000";
 var OutLayerAdapter = class {
   constructor(config) {
     this.keyIdCache = /* @__PURE__ */ new Map();
-    this.contractId = config.contractId || "outlayer.near";
+    this.network = config.network || "mainnet";
+    this.contractId = config.contractId || DEFAULT_CONTRACTS[this.network];
     this.keyManagerVersion = config.keyManagerVersion || "v0.3.0";
+    this.deposit = config.deposit || DEFAULT_DEPOSIT;
+    this.gas = config.gas || DEFAULT_GAS;
     this.signTransaction = config.signTransaction;
   }
   async wrapKey(groupId, plaintextKeyB64) {
@@ -318,7 +376,7 @@ var OutLayerAdapter = class {
   async callTEE(action, params) {
     const input = JSON.stringify({ action, ...params });
     const transaction = {
-      contractId: this.contractId,
+      receiverId: this.contractId,
       methodName: "request_execution",
       args: {
         source: {
@@ -335,7 +393,9 @@ var OutLayerAdapter = class {
           max_execution_seconds: 60
         },
         response_format: "Json"
-      }
+      },
+      gas: this.gas,
+      deposit: this.deposit
     };
     const result = await this.signTransaction(transaction);
     return result;

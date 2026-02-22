@@ -105,3 +105,27 @@ export interface GetResult {
   plaintext: string;
   metadata?: Record<string, unknown>;
 }
+
+// ============ NEAR Transaction Types ============
+
+/**
+ * NEAR transaction interface for TEE operations
+ * Matches standard NEAR SDK transaction structure
+ */
+export interface NEARTransaction {
+  /** Contract account ID to call (receiverId in NEAR SDK) */
+  receiverId: string;
+  /** Method name to call */
+  methodName: string;
+  /** Method arguments */
+  args: Record<string, unknown>;
+  /** Gas limit in yoctoNEAR (optional) */
+  gas?: string;
+  /** Attached deposit (e.g., "0.05 NEAR") */
+  deposit?: string;
+}
+
+/**
+ * Result returned by signTransaction callback
+ */
+export type TransactionResult = string; // transaction hash

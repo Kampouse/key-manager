@@ -43,6 +43,9 @@
     "url": "https://github.com/Kampouse/key-manager/issues"
   },
   "homepage": "https://github.com/Kampouse/key-manager#readme",
+  "dependencies": {
+    "ofetch": "^1.5.1"
+  },
   "devDependencies": {
     "@types/node": "^20.10.0",
     "tsup": "^8.0.1",

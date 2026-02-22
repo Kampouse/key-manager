@@ -1,3 +1,5 @@
+import { $fetch } from 'ofetch';
+
 /**
  * Backend-agnostic storage interface
  * Implement this for any storage backend (FastKV, S3, IPFS, etc.)
@@ -91,6 +93,22 @@ interface GetOptions {
 interface GetResult {
     plaintext: string;
     metadata?: Record<string, unknown>;
+}
+/**
+ * NEAR transaction interface for TEE operations
+ * Matches standard NEAR SDK transaction structure
+ */
+interface NEARTransaction {
+    /** Contract account ID to call (receiverId in NEAR SDK) */
+    receiverId: string;
+    /** Method name to call */
+    methodName: string;
+    /** Method arguments */
+    args: Record<string, unknown>;
+    /** Gas limit in yoctoNEAR (optional) */
+    gas?: string;
+    /** Attached deposit (e.g., "0.05 NEAR") */
+    deposit?: string;
 }
 
 /**
@@ -199,17 +217,27 @@ interface FastKVAdapterConfig {
     accountId: string;
     /** Storage contract ID (default: contextual.near) */
     contractId?: string;
-    /** Custom fetch function (for testing or custom auth) */
-    fetch?: typeof fetch;
+    /** Custom fetch instance (for testing or custom auth) */
+    fetch?: ReturnType<typeof $fetch>;
 }
 /**
  * FastKV storage adapter for NEAR blockchain
+ *
+ * Uses ofetch for universal cross-platform fetch support.
+ * Works in browser, Node.js, Cloudflare Workers, Deno, and more.
+ *
+ * @example
+ * ```ts
+ * const adapter = new FastKVAdapter({
+ *   apiUrl: 'https://near.garden',
+ *   accountId: 'my-account.near',
+ * });
+ * ```
  */
 declare class FastKVAdapter implements StorageAdapter {
-    private readonly apiUrl;
+    private readonly fetch;
     private readonly accountId;
     private readonly contractId;
-    private readonly fetchFn;
     constructor(config: FastKVAdapterConfig);
     set(key: string, entry: EncryptedEntry): Promise<{
         txHash?: string;
@@ -221,13 +249,20 @@ declare class FastKVAdapter implements StorageAdapter {
     list(prefix?: string): Promise<string[]>;
 }
 
+type Network = 'mainnet' | 'testnet';
 interface OutLayerAdapterConfig {
-    /** OutLayer contract ID */
+    /** OutLayer contract ID (default: based on network) */
     contractId?: string;
-    /** Key manager WASM version */
+    /** Network to use (default: mainnet) */
+    network?: Network;
+    /** Key manager WASM version (default: v0.3.0) */
     keyManagerVersion?: string;
-    /** Function to sign NEAR transactions */
-    signTransaction: (transaction: unknown) => Promise<unknown>;
+    /** Deposit amount for TEE execution (default: "0.05 NEAR") */
+    deposit?: string;
+    /** Gas limit for TEE execution (default: "300000000000000") */
+    gas?: string;
+    /** Function to sign NEAR transactions and return the TEE response */
+    signTransaction: (transaction: NEARTransaction) => Promise<Record<string, unknown>>;
 }
 /**
  * OutLayer TEE adapter for NEAR
@@ -235,10 +270,35 @@ interface OutLayerAdapterConfig {
  * Requires a signing function to authorize TEE operations.
  * In browser: use NEAR wallet
  * In Node.js: use keypair or NEAR CLI
+ *
+ * @example
+ * ```ts
+ * const adapter = new OutLayerAdapter({
+ *   network: 'testnet',
+ *   signTransaction: async (tx) => {
+ *     // tx.receiverId - the contract to call
+ *     // tx.deposit - amount to attach (use this!)
+ *     const result = await wallet.signAndSendTransaction({
+ *       receiverId: tx.receiverId,
+ *       actions: [{
+ *         type: 'FunctionCall',
+ *         methodName: tx.methodName,
+ *         args: tx.args,
+ *         gas: tx.gas,
+ *         deposit: tx.deposit,
+ *       }]
+ *     });
+ *     return result.transaction.hash;
+ *   },
+ * });
+ * ```
  */
 declare class OutLayerAdapter implements TEEAdapter {
     private readonly contractId;
+    private readonly network;
     private readonly keyManagerVersion;
+    private readonly deposit;
+    private readonly gas;
     private readonly signTransaction;
     private readonly keyIdCache;
     constructor(config: OutLayerAdapterConfig);
