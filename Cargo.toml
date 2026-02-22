@@ -1,3 +1,7 @@
+[workspace]
+members = [".", "fastkv-server"]
+resolver = "2"
+
 [package]
 name = "key-manager"
 version = "0.3.0"
