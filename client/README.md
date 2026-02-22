@@ -104,6 +104,74 @@ The `signTransaction` callback receives a `NEARTransaction` object with the foll
 
 **⚠️ OutLayer requires 0.05 NEAR deposit for each TEE operation.** Make sure to attach this deposit when signing transactions.
 
+## How It Works
+
+### Encryption Flow (Store Data)
+
+```
+1. Generate AES-256 key locally (your device)
+2. Encrypt plaintext locally with AES-256-GCM
+3. Call OutLayer TEE to wrap the AES key
+   - TEE encrypts key with its internal key
+   - TEE binds key to your NEAR account
+4. Write to blockchain/storage:
+   { wrapped_key, ciphertext, key_id, algorithm }
+   
+🔐 Plaintext NEVER leaves your device!
+```
+
+### Decryption Flow (Retrieve Data)
+
+```
+1. Fetch encrypted entry from FastKV/Redis:
+   {
+     wrapped_key: "...",
+     ciphertext: "...",
+     key_id: "..."
+   }
+
+2. Call OutLayer TEE to unwrap the key:
+   POST api.outlayer.fastnear.com/call/Kampouse/key-manager
+   {
+     action: "unwrap_key",
+     wrapped_key_b64: "...",
+     account_id: "your-account.near"
+   }
+   
+   → TEE verifies you own "your-account.near" (via signature)
+   → TEE decrypts and returns plaintext AES key
+
+3. Decrypt locally:
+   AES-256-GCM decrypt(ciphertext, unwrapped_key)
+   → "Your secret data"
+```
+
+**Key Point:** The TEE only unwraps keys if you prove ownership of the account. Different device, same account = can still decrypt!
+
+### Code Example: Decryption
+
+```typescript
+// 1. Fetch from FastKV
+const entry = await fetch(
+  `https://fastkv.example.com/v1/kv/contextual.near/me.near/my-key`
+).then(r => r.json());
+
+// 2. Unwrap key via TEE (proves account ownership)
+const unwrapped = await fetch('https://api.outlayer.fastnear.com/call/Kampouse/key-manager', {
+  method: 'POST',
+  headers: { 'X-Payment-Key': paymentKey },
+  body: JSON.stringify({
+    action: 'unwrap_key',
+    wrapped_key_b64: entry.wrapped_key,
+    account_id: 'me.near'
+  })
+}).then(r => r.json());
+
+// 3. Decrypt locally
+const plaintext = decrypt(entry.ciphertext, unwrapped.plaintext_key_b64);
+console.log(plaintext); // "Your secret data"
+```
+
 ## Architecture
 
 ```
