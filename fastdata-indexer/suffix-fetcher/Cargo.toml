@@ -1,0 +1,19 @@
+[package]
+name = "suffix-fetcher"
+description = "Common crate to fetch fastdata by suffix from scylladb"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+scylladb = { path = "../scylladb" }
+tokio.workspace = true
+fastnear-primitives.workspace = true
+tracing.workspace = true
+scylla.workspace = true
+anyhow.workspace = true
+rustls.workspace = true
+futures.workspace = true
+

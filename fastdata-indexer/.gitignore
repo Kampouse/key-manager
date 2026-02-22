@@ -1,0 +1,4 @@
+.env
+/target
+res
+.DS_Store
