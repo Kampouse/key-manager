@@ -1,8 +1,7 @@
 [build]
-buildCommand = "cd fastkv-server && cargo build --release"
-builder = "RAILPACK"
+builder = "DOCKERFILE"
+dockerfilePath = "fastkv-server/Dockerfile"
 
 [deploy]
-startCommand = "cd fastkv-server && ./target/release/fastkv-server"
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3

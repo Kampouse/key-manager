@@ -5,21 +5,25 @@ WORKDIR /app
 # Install dependencies
 RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
 
-# Copy Cargo files first for better caching
+# Copy workspace Cargo files for caching
 COPY Cargo.toml Cargo.lock* ./
 COPY rust-toolchain.toml ./
 
-# Create dummy main.rs to build dependencies
-RUN mkdir src && echo "fn main() {}" > src/main.rs
-RUN cargo build --release && rm -rf src
+# Create dummy files to build dependencies
+RUN mkdir -p key-manager/src fastkv-server/src && \
+    echo "fn main() {}" > key-manager/src/lib.rs && \
+    echo "fn main() {}" > fastkv-server/src/main.rs && \
+    echo "fn main() {}" > fastkv-server/create-tables.rs
 
-# Copy actual source
-COPY src ./src
-COPY create-tables.rs ./
-COPY start.sh ./
+# Build dependencies
+RUN cargo build --release && rm -rf key-manager fastkv-server
 
-# Build for real
-RUN cargo build --release && chmod +x start.sh
+# Copy actual source code
+COPY key-manager ./key-manager
+COPY fastkv-server ./fastkv-server
+
+# Build fastkv-server
+RUN cargo build --release -p fastkv-server
 
 # Expose port
 EXPOSE 3001
@@ -28,4 +32,4 @@ EXPOSE 3001
 ENV CHAIN_ID=mainnet
 
 # Run
-CMD ["./start.sh"]
+CMD ["./target/release/fastkv-server"]
