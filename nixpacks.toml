@@ -1,0 +1,7 @@
+[phases.setup]
+
+[phases.build]
+cmd = "cargo build --release -p fastkv-server"
+
+[start]
+cmd = "./target/release/fastkv-server"
