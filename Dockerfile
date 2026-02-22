@@ -7,21 +7,19 @@ RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/li
 
 # Copy workspace Cargo files for caching
 COPY Cargo.toml Cargo.lock* ./
-COPY rust-toolchain.toml ./
-COPY key-manager/Cargo.toml ./key-manager/
 COPY fastkv-server/Cargo.toml ./fastkv-server/
 COPY fastkv-server/create-tables.rs ./fastkv-server/
 
 # Create dummy files to build dependencies
-RUN mkdir -p key-manager/src fastkv-server/src && \
-    echo "fn main() {}" > key-manager/src/lib.rs && \
+RUN mkdir -p src fastkv-server/src && \
+    echo "fn main() {}" > src/lib.rs && \
     echo "fn main() {}" > fastkv-server/src/main.rs
 
 # Build dependencies
-RUN cargo build --release && rm -rf key-manager/src fastkv-server/src
+RUN cargo build --release && rm -rf src fastkv-server/src
 
 # Copy actual source code
-COPY key-manager/src ./key-manager/src
+COPY src ./src
 COPY fastkv-server/src ./fastkv-server/src
 
 # Build fastkv-server

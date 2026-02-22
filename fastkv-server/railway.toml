@@ -1,4 +1,6 @@
+[build]
+builder = "DOCKERFILE"
+
 [deploy]
-startCommand = "./bin/fastkv-server"
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3

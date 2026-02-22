@@ -1,3 +1,6 @@
+# This Dockerfile is meant to be built from key-manager/ root directory
+# Railway Root Directory should be set to "." (repo root), NOT "fastkv-server"
+
 FROM rust:1.88-slim
 
 WORKDIR /app
@@ -7,23 +10,25 @@ RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/li
 
 # Copy workspace Cargo files for caching
 COPY Cargo.toml Cargo.lock* ./
-COPY rust-toolchain.toml ./
+COPY fastkv-server/Cargo.toml ./fastkv-server/
+COPY fastkv-server/create-tables.rs ./fastkv-server/
 
 # Create dummy files to build dependencies
-RUN mkdir -p key-manager/src fastkv-server/src && \
-    echo "fn main() {}" > key-manager/src/lib.rs && \
-    echo "fn main() {}" > fastkv-server/src/main.rs && \
-    echo "fn main() {}" > fastkv-server/create-tables.rs
+RUN mkdir -p src fastkv-server/src && \
+    echo "fn main() {}" > src/lib.rs && \
+    echo "fn main() {}" > fastkv-server/src/main.rs
 
 # Build dependencies
-RUN cargo build --release && rm -rf key-manager fastkv-server
+RUN cargo build --release && rm -rf src fastkv-server/src
 
 # Copy actual source code
-COPY key-manager ./key-manager
-COPY fastkv-server ./fastkv-server
+COPY src ./src
+COPY fastkv-server/src ./fastkv-server/src
 
 # Build fastkv-server
 RUN cargo build --release -p fastkv-server
+
+WORKDIR /app/fastkv-server
 
 # Expose port
 EXPOSE 3001
@@ -32,4 +37,4 @@ EXPOSE 3001
 ENV CHAIN_ID=mainnet
 
 # Run
-CMD ["./target/release/fastkv-server"]
+CMD ["../target/release/fastkv-server"]
