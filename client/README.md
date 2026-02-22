@@ -52,6 +52,7 @@ const kv = new PrivateKV({
   storage: new FastKVAdapter({
     apiUrl: 'https://fastkv-server-production.up.railway.app',
     accountId: 'your-account.near',
+    // Note: Uses ofetch automatically - no fetch param needed
   }),
 
   // TEE backend (for key wrapping)
@@ -209,6 +210,15 @@ console.log(plaintext); // "Your secret data"
 
 ## Built-in Adapters
 
+**Note:** FastKVAdapter uses [ofetch](https://github.com/unjs/ofetch) for universal fetch support. It works automatically in:
+- Browser
+- Node.js 18+
+- Cloudflare Workers
+- Deno
+- Bun
+
+No need to pass a `fetch` parameter - it's handled automatically.
+
 ### Storage Adapters
 
 - **FastKVAdapter** - NEAR blockchain storage via FastKV API
@@ -321,8 +331,6 @@ async function initPasswordManager(
     storage: new FastKVAdapter({
       apiUrl: 'https://near.garden',
       accountId,
-      // Vite/SSR: fetch is available via polyfill
-      fetch: window.fetch,
     }),
     tee: new OutLayerAdapter({
       network: 'testnet',
@@ -351,14 +359,13 @@ async function initPasswordManager(
 ```typescript
 import { PrivateKV, FastKVAdapter, OutLayerAdapter } from 'near-fastkv-encrypted';
 
-// Explicitly provide fetch for SSR
+// Works in SSR environments automatically (Node 18+, Cloudflare Workers, Deno)
 function createPrivateKV(accountId: string, wallet: any) {
   return new PrivateKV({
     accountId,
     storage: new FastKVAdapter({
       apiUrl: 'https://near.garden',
       accountId,
-      fetch: fetch, // Use native fetch (Node 18+)
     }),
     tee: new OutLayerAdapter({
       network: 'mainnet',
@@ -383,7 +390,6 @@ function createPrivateKV(accountId: string, wallet: any) {
 ### Node.js Backend
 
 ```typescript
-import fetch from 'node-fetch'; // Node.js < 18
 import { PrivateKV, FastKVAdapter, OutLayerAdapter } from 'near-fastkv-encrypted';
 import { Near } from 'near-api-js';
 
@@ -398,7 +404,7 @@ async function createPrivateKeyManager(accountId: string, keyPair: any) {
     storage: new FastKVAdapter({
       apiUrl: 'https://near.garden',
       accountId,
-      fetch: fetch as any, // Provide node-fetch
+      // Note: Uses ofetch automatically (Node 18+, or polyfill)
     }),
     tee: new OutLayerAdapter({
       network: 'mainnet',
