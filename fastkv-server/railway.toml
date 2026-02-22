@@ -1,7 +1,6 @@
 [build]
-builder = "nixpacks"
+builder = "dockerfile"
 
 [deploy]
-startCommand = "./target/release/fastkv-server"
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
