@@ -4,15 +4,25 @@ Real-world integration patterns for the OutLayer TEE Key Manager.
 
 ## TypeScript Clients
 
-All examples include fully-typed TypeScript clients.
+All examples use the `PrivateKV` class from `near-fastkv-encrypted`.
 
 ### Base Client
 
 ```typescript
-import { KeyManagerClient } from "../key-manager-client";
+import { PrivateKV, FastKVAdapter, OutLayerAdapter } from 'near-fastkv-encrypted';
 
-const client = new KeyManagerClient({
-  paymentKey: "pk_your_payment_key",
+const kv = new PrivateKV({
+  accountId: 'your-account.near',
+  storage: new FastKVAdapter({
+    apiUrl: 'https://your-fastkv-server.com',
+    accountId: 'your-account.near',
+  }),
+  tee: new OutLayerAdapter({
+    network: 'mainnet',
+    signTransaction: async (tx) => {
+      // Your signing logic
+    },
+  }),
 });
 ```
 
@@ -27,84 +37,31 @@ const client = new KeyManagerClient({
 
 ## Files
 
-```
-examples/
-├── types.ts                    # Shared type definitions
-├── key-manager-client.ts       # Base client with all actions
-├── profile-secrets/
-│   ├── profile-client.ts       # Encrypted profiles client
-│   ├── client.js               # JavaScript version
-│   ├── api-server.js           # Blind API server
-│   └── schema.json             # Data model
-├── shared-vault/
-│   ├── vault-client.ts         # Team vault client
-│   └── vault-manager.js        # JavaScript version
-├── fastkv-integration/
-│   ├── kv-client.ts            # KV storage client
-│   └── kv-client.js            # JavaScript version
-└── wallet-signer/
-    ├── wallet-client.ts        # Wallet signer client
-    └── wallet-client.js        # JavaScript version
+- `profile-secrets/` - User profile encryption with GDPR support
+- `shared-vault/` - Team secrets with group access control
+- `wallet-signer/` - TEE-based wallet signing
+- `fastkv-integration/` - Full FastKV client example
+
+## Running Examples
+
+Each example is self-contained. Install dependencies and run:
+
+```bash
+cd examples/profile-secrets
+npm install
+npm start
 ```
 
-## Quick Reference
+## Testing
 
-### Encrypted Value Format
-```
-enc:AES256:<key_id>:<ciphertext_base64>
-```
+For testing without infrastructure, use mock adapters:
 
-### Key Manager API
 ```typescript
-// Single operations
-await client.getKey(groupId, accountId);
-await client.encrypt(groupId, accountId, plaintext);
-await client.decrypt(groupId, accountId, ciphertextB64);
+import { PrivateKV, MemoryStorageAdapter, MockTEEAdapter } from 'near-fastkv-encrypted';
 
-// Batch operations (faster)
-await client.batchEncrypt(groupId, accountId, { key1: "value1", key2: "value2" });
-await client.batchDecrypt(groupId, accountId, [{ key: "key1", ciphertextB64: "..." }]);
-```
-
-### Cost Optimization
-```typescript
-// ❌ Bad: 3 separate calls
-await client.encrypt(groupId, accountId, "value1");
-await client.encrypt(groupId, accountId, "value2");
-await client.encrypt(groupId, accountId, "value3");
-
-// ✅ Good: 1 batch call
-await client.batchEncrypt(groupId, accountId, {
-  key1: "value1",
-  key2: "value2",
-  key3: "value3",
+const kv = new PrivateKV({
+  accountId: 'test.near',
+  storage: new MemoryStorageAdapter(),
+  tee: new MockTEEAdapter(),
 });
-```
-
-## Performance
-
-| Source | First Call | Cached |
-|--------|-----------|--------|
-| GitHub | ~30s | ~0.7s |
-| WasmUrl | ~1.2s | ~0.9s |
-
-**Cost:** ~$0.005 per cached call
-
-## Types
-
-See [types.ts](./types.ts) for full type definitions:
-
-```typescript
-// Request types
-interface GetKeyRequest { action: "get_key"; group_id: string; account_id: string; }
-interface EncryptRequest { action: "encrypt"; group_id: string; account_id: string; plaintext_b64: string; }
-interface BatchEncryptRequest { action: "batch_encrypt"; items: EncryptItem[]; }
-
-// Response types
-interface KeyResponse { key_b64: string; key_id: string; attestation_hash: string; }
-interface EncryptResponse { ciphertext_b64: string; key_id: string; }
-interface BatchEncryptResponse { key_id: string; items: BatchEncryptItemResult[]; }
-
-// Encrypted value type (branded)
-type EncryptedValueString = `enc:AES256:${string}:${string}`;
 ```

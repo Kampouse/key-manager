@@ -1,6 +1,6 @@
 # FastKV Server
 
-API for querying NEAR blockchain FastData key-value stores (`__fastdata_kv`) stored in ScyllaDB.
+API for querying NEAR blockchain FastData key-value stores (`__fastdata_kv`) stored in Redis.
 
 **Live:** https://near.garden
 

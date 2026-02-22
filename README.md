@@ -2,165 +2,108 @@
 
 TEE-based encryption service running in OutLayer's secure enclave. Keys derived from CKD (Confidential Key Derivation) - nobody knows the key, not even you.
 
-## 🆕 PrivateKV - Maximum Privacy Storage
+## Project Structure
 
-**Plaintext NEVER leaves your device!**
-
-```typescript
-import { PrivateKV } from '@kampouse/private-kv';
-
-const kv = new PrivateKV({ accountId: "kampouse.near" });
-
-// Encrypt locally - plaintext never sent
-const encrypted = await kv.encrypt("password", "my secret 123");
-
-// Decrypt - only wrapped key sent to TEE
-const plaintext = await kv.decrypt(encrypted);
 ```
-
-**Privacy guarantees:**
-- ✅ Server NEVER sees plaintext
-- ✅ TEE NEVER sees ciphertext  
-- ✅ Network only sees encrypted data
-- ✅ Works across devices (CKD-derived keys)
-
-See [examples/private-kv/](./examples/private-kv/) for full documentation.
-
----
+key-manager/
+├── contract/          # OutLayer TEE WASM (Rust)
+├── client/            # TypeScript/JavaScript client
+├── fastdata-indexer/  # NEAR blockchain indexer
+├── fastkv-server/     # FastKV API server
+└── examples/          # Usage examples
+```
 
 ## Quick Start
 
-**Pre-compiled WASM (instant execution):**
-```
-v0.3.0 (Latest - with PrivateKV support):
-URL: https://github.com/Kampouse/key-manager/releases/download/v0.3.0/key-manager.wasm
-Hash: 63b6cbcae38f1da7b6d105f317b329bded6c81145a1baa1f7792c6e2be25cf84
+### 1. Deploy Contract WASM
 
-v0.2.0 (Legacy):
-Target: wasm32-wasip1
-```
-
-### Via NEAR Contract
+Build the TEE contract:
 ```bash
-near call outlayer.near request_execution '{
-  "source": {"WasmUrl": {
-    "url": "https://github.com/Kampouse/key-manager/releases/download/v0.2.0/key-manager.wasm",
-    "hash": "44ce9f1f616e765f21fe208eb1ff4db29a7aac90096ca83cf75864793c21e7d3",
-    "build_target": "wasm32-wasip1"
-  }},
-  "input_data": "{\"action\":\"get_key\",\"group_id\":\"user.near/data\",\"account_id\":\"user.near\"}",
-  "resource_limits": {"max_instructions": 10000000000, "max_memory_mb": 128, "max_execution_seconds": 60},
-  "response_format": "Json"
-}' --accountId user.near --networkId mainnet --deposit 0.05 --gas 300000000000000
+cd contract
+cargo build --target wasm32-wasip1 --release
+# Output: target/wasm32-wasip1/release/key-manager.wasm
 ```
 
-## Installation
+Deploy to OutLayer:
+```bash
+# Via OutLayer dashboard or CLI
+outlayer deploy --name your-project key-manager.wasm
+```
+
+### 2. Install Client
 
 ```bash
-npm install @kampouse/key-manager-client
-# or
-yarn add @kampouse/key-manager-client
+cd client
+npm install
+npm run build
 ```
 
-## TypeScript Usage
+### 3. Use in Your App
 
 ```typescript
-import { KeyManagerClient } from "@kampouse/key-manager-client";
+import { PrivateKV, FastKVAdapter, OutLayerAdapter } from 'near-fastkv-encrypted';
 
-const client = new KeyManagerClient({
-  paymentKey: "pk_your_payment_key",
+const kv = new PrivateKV({
+  accountId: 'your-account.near',
+  storage: new FastKVAdapter({
+    apiUrl: 'https://your-fastkv-server.com',
+    accountId: 'your-account.near',
+  }),
+  tee: new OutLayerAdapter({
+    network: 'mainnet',
+    signTransaction: async (tx) => {
+      // Your signing logic
+    },
+  }),
 });
 
-// Encrypt data
-const { encryptedValue, key_id } = await client.encrypt(
-  "alice.near/private",
-  "alice.near",
-  "secret data"
-);
+// Encrypt and store
+await kv.set('my-secret', 'hello world');
 
-// Decrypt data
-const { plaintext } = await client.decrypt(
-  "alice.near/private",
-  "alice.near",
-  ciphertextB64
-);
-
-// Batch operations (faster)
-const { encryptedValues } = await client.batchEncrypt(
-  "alice.near/data",
-  "alice.near",
-  {
-    email: "alice@example.com",
-    phone: "+1-555-1234",
-  }
-);
+// Retrieve and decrypt
+const plaintext = await kv.get('my-secret');
 ```
 
-## Actions
+See [client/README.md](./client/README.md) for full documentation.
+
+---
+
+## Contract Actions
+
+The WASM contract supports these actions:
+
+### `wrap_key`
+Wrap a client AES key with TEE key.
+
+```json
+{
+  "action": "wrap_key",
+  "group_id": "user.near/data",
+  "account_id": "user.near",
+  "plaintext_key_b64": "base64-encoded-32-byte-key"
+}
+```
+
+### `unwrap_key`
+Unwrap a client AES key.
+
+```json
+{
+  "action": "unwrap_key",
+  "group_id": "user.near/data",
+  "account_id": "user.near",
+  "wrapped_key_b64": "base64-wrapped-key"
+}
+```
 
 ### `get_key`
 Get encryption key for a group.
 
-```typescript
-const { key_b64, key_id, attestation_hash } = await client.getKey(
-  "alice.near/private",
-  "alice.near"
-);
-```
+### `encrypt` / `decrypt`
+Encrypt/decrypt data with group key.
 
-### `encrypt`
-Encrypt data with group key (AES-256-GCM).
-
-```typescript
-const { ciphertext_b64, key_id, encryptedValue } = await client.encrypt(
-  "alice.near/private",
-  "alice.near",
-  "secret data"
-);
-// encryptedValue = "enc:AES256:key_id:ciphertext_b64"
-```
-
-### `decrypt`
-Decrypt data with group key.
-
-```typescript
-const { plaintext, plaintext_utf8 } = await client.decrypt(
-  "alice.near/private",
-  "alice.near",
-  ciphertextB64
-);
-// plaintext_utf8 = "secret data" (if valid UTF-8)
-```
-
-### `batch_encrypt`
-Encrypt multiple items in one call.
-
-```typescript
-const { encryptedValues, key_id } = await client.batchEncrypt(
-  "alice.near/data",
-  "alice.near",
-  {
-    name: "Alice",
-    email: "alice@example.com",
-    phone: "+1-555-1234",
-  }
-);
-```
-
-### `batch_decrypt`
-Decrypt multiple items in one call.
-
-```typescript
-const { plaintexts } = await client.batchDecrypt(
-  "alice.near/data",
-  "alice.near",
-  [
-    { key: "name", ciphertextB64: "..." },
-    { key: "email", ciphertextB64: "..." },
-  ]
-);
-// plaintexts = { name: "Alice", email: "alice@example.com" }
-```
+### `batch_encrypt` / `batch_decrypt`
+Encrypt/decrypt multiple items in one call.
 
 ## Examples
 
@@ -172,25 +115,6 @@ See [examples/](./examples) for real-world use cases:
 | [shared-vault](./examples/shared-vault) | Team secrets with group access |
 | [wallet-signer](./examples/wallet-signer) | TEE wallet (keys never leave enclave) |
 | [fastkv-integration](./examples/fastkv-integration) | Encrypted key-value storage |
-
-## FastKV Integration
-
-FastKV provides encrypted storage endpoints using the Key Manager.
-
-**Quick start:**
-```bash
-# Encrypt
-curl -X POST https://fastkv.up.railway.app/v1/kv/encrypted/encrypt \
-  -H "X-Payment-Key: pk_..." \
-  -d '{"account_id": "alice.near", "value": "secret"}'
-
-# Decrypt
-curl -X POST https://fastkv.up.railway.app/v1/kv/encrypted/decrypt \
-  -H "X-Payment-Key: pk_..." \
-  -d '{"account_id": "alice.near", "ciphertext": "enc:AES256:..."}'
-```
-
-See [docs/FASTKV_INTEGRATION.md](./docs/FASTKV_INTEGRATION.md) for full documentation.
 
 ## Performance
 
@@ -204,6 +128,7 @@ See [docs/FASTKV_INTEGRATION.md](./docs/FASTKV_INTEGRATION.md) for full document
 ## Test Locally
 
 ```bash
+cd contract
 cargo build --release --target wasm32-wasip1
 echo '{"action":"get_key","group_id":"test.near/data","account_id":"test.near"}' | \
   wasmtime target/wasm32-wasip1/release/key-manager.wasm
@@ -228,10 +153,6 @@ Example:
 ```
 enc:AES256:01560100ddd39635:hM60OnrQ6W2yUKX0QvTCo8iSz2f4g3tElMzA5Fj93ig4
 ```
-
-## API Reference
-
-See [types.ts](./examples/types.ts) for full type definitions.
 
 ## License
 
