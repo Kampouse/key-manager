@@ -512,15 +512,12 @@ Create a `.env` file in the project root:
 CHAIN_ID=mainnet                      # Chain: mainnet, testnet, etc.
 START_BLOCK_HEIGHT=183140000          # Initial block to start syncing
 
-# ScyllaDB Configuration
-SCYLLA_URL=<host>:9042               # ScyllaDB endpoint
-SCYLLA_USERNAME=scylla               # Database username
-SCYLLA_PASSWORD=<password>           # Database password
+# Redis Configuration
+REDIS_URL=redis://127.0.0.1:6379      # Redis endpoint
 
-# Optional: TLS/mTLS Configuration
-# SCYLLA_SSL_CA=<path/to/ca.crt>       # TLS CA certificate
-# SCYLLA_SSL_CERT=<path/to/client.crt> # mTLS client certificate
-# SCYLLA_SSL_KEY=<path/to/client.key>  # mTLS client private key
+# Optional: Account Filtering
+# FILTER_ACCOUNTS=kampouse.near,alice.near  # Only index these accounts (comma-separated)
+#                                           # If not set, indexes ALL accounts (default)
 
 # Optional: Fastnear neardata API
 # FASTNEAR_AUTH_BEARER_TOKEN=<token>   # Auth for neardata API
@@ -528,6 +525,16 @@ SCYLLA_PASSWORD=<password>           # Database password
 # Optional: Runtime Configuration
 # NUM_THREADS=8                         # Thread pool size for main-indexer (default: 8)
 # BLOCK_UPDATE_INTERVAL_MS=5000        # Checkpoint interval in ms (default: 5000)
+```
+
+**Account Filtering:** When `FILTER_ACCOUNTS` is set, the main-indexer only processes transactions where any of the specified accounts are involved (as predecessor_id, signer_id, or current_account_id). This significantly reduces storage and processing for single-account deployments.
+
+```bash
+# Example: Only index data for kampouse.near
+FILTER_ACCOUNTS=kampouse.near
+
+# Example: Index multiple accounts
+FILTER_ACCOUNTS=kampouse.near,alice.near,bob.near
 ```
 
 **Security Note:** Never commit `.env` to version control. It's already in `.gitignore`.
