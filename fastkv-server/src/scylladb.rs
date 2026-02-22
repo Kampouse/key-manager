@@ -164,7 +164,7 @@ pub struct ScyllaDb {
     pub kv_reverse_table_name: String,
 }
 
-pub fn create_rustls_client_config() -> anyhow::Result<Arc<ClientConfig>> {
+pub fn create_rustls_client_config() -> Arc<ClientConfig> {
     if rustls::crypto::CryptoProvider::get_default().is_none() {
         rustls::crypto::aws_lc_rs::default_provider()
             .install_default()
@@ -172,39 +172,33 @@ pub fn create_rustls_client_config() -> anyhow::Result<Arc<ClientConfig>> {
     }
 
     let ca_cert_path =
-        env::var("SCYLLA_SSL_CA").map_err(|_| anyhow::anyhow!("SCYLLA_SSL_CA required for TLS"))?;
-    let ca_certs = rustls::pki_types::CertificateDer::from_pem_file(&ca_cert_path)
-        .map_err(|e| anyhow::anyhow!("Failed to load CA cert from '{}': {}", ca_cert_path, e))?;
+        env::var("SCYLLA_SSL_CA").expect("SCYLLA_SSL_CA environment variable not set");
+    let client_cert_path = env::var("SCYLLA_SSL_CERT").ok();
+    let client_key_path = env::var("SCYLLA_SSL_KEY").ok();
+
+    let ca_certs = rustls::pki_types::CertificateDer::from_pem_file(ca_cert_path)
+        .expect("Failed to load CA certs");
 
     let mut root_store = RootCertStore::empty();
-    root_store
-        .add(ca_certs)
-        .map_err(|e| anyhow::anyhow!("Failed to add CA certs to root store: {}", e))?;
+    root_store.add(ca_certs).expect("Failed to add CA certs");
 
-    let config = match (
-        env::var("SCYLLA_SSL_CERT").ok(),
-        env::var("SCYLLA_SSL_KEY").ok(),
-    ) {
+    let config = match (client_cert_path, client_key_path) {
         (Some(cert_path), Some(key_path)) => {
-            let client_certs = rustls::pki_types::CertificateDer::from_pem_file(&cert_path)
-                .map_err(|e| {
-                    anyhow::anyhow!("Failed to load client cert from '{}': {}", cert_path, e)
-                })?;
-            let client_key =
-                rustls::pki_types::PrivateKeyDer::from_pem_file(&key_path).map_err(|e| {
-                    anyhow::anyhow!("Failed to load client key from '{}': {}", key_path, e)
-                })?;
+            let client_certs = rustls::pki_types::CertificateDer::from_pem_file(cert_path)
+                .expect("Failed to load client certs");
+            let client_key = rustls::pki_types::PrivateKeyDer::from_pem_file(key_path)
+                .expect("Failed to load client key");
             ClientConfig::builder()
                 .with_root_certificates(root_store)
                 .with_client_auth_cert(vec![client_certs], client_key)
-                .map_err(|e| anyhow::anyhow!("Failed to create client config with mTLS: {}", e))?
+                .expect("Failed to create client config with mTLS")
         }
         _ => ClientConfig::builder()
             .with_root_certificates(root_store)
             .with_no_client_auth(),
     };
 
-    Ok(Arc::new(config))
+    Arc::new(config)
 }
 
 impl ScyllaDb {
@@ -213,14 +207,20 @@ impl ScyllaDb {
         let scylla_username = env::var("SCYLLA_USERNAME").expect("SCYLLA_USERNAME must be set");
         let scylla_password = env::var("SCYLLA_PASSWORD").expect("SCYLLA_PASSWORD must be set");
 
-        let tls_config = match env::var("SCYLLA_SSL_CA").ok() {
-            Some(_) => Some(create_rustls_client_config()?),
-            None => None,
-        };
+        let tls_config = env::var("SCYLLA_SSL_CA").ok().map(|_| create_rustls_client_config());
+        if tls_config.is_none() {
+            tracing::warn!("SCYLLA_SSL_CA not set - ScyllaDB connection is unencrypted");
+        }
 
-        let session: Session = SessionBuilder::new()
-            .known_node(scylla_url)
-            .connection_timeout(std::time::Duration::from_secs(5))
+        let mut builder = SessionBuilder::new();
+        for node in scylla_url.split(',') {
+            let node = node.trim();
+            if !node.is_empty() {
+                builder = builder.known_node(node);
+            }
+        }
+
+        let session: Session = builder
             .tls_context(tls_config)
             .authenticator_provider(Arc::new(
                 scylla::authentication::PlainTextAuthenticator::new(
