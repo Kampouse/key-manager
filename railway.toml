@@ -1,8 +1,8 @@
 [build]
-# Tell Railpack to build from the fastkv-server subdirectory
-context = "fastkv-server"
+buildCommand = "cd fastkv-server && cargo build --release"
+builder = "RAILPACK"
 
 [deploy]
-startCommand = "./bin/fastkv-server"
+startCommand = "cd fastkv-server && ./target/release/fastkv-server"
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
