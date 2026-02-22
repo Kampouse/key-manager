@@ -1,0 +1,8 @@
+[build]
+# Tell Railpack to build from the fastkv-server subdirectory
+context = "fastkv-server"
+
+[deploy]
+startCommand = "./bin/fastkv-server"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3
