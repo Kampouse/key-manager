@@ -16,9 +16,10 @@ RUN cargo build --release && rm -rf src
 # Copy actual source
 COPY src ./src
 COPY create-tables.rs ./
+COPY start.sh ./
 
 # Build for real
-RUN cargo build --release
+RUN cargo build --release && chmod +x start.sh
 
 # Expose port
 EXPOSE 3001
@@ -27,4 +28,4 @@ EXPOSE 3001
 ENV CHAIN_ID=mainnet
 
 # Run
-CMD ["./target/release/fastkv-server"]
+CMD ["./start.sh"]
