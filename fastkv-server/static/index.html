@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>NEAR Garden</title>
+    <meta
+      name="description"
+      content="Explore and write on-chain key-value data on NEAR Protocol. No API key required."
+    />
+    <meta property="og:title" content="NEAR Garden" />
+    <meta
+      property="og:description"
+      content="Explore and write on-chain key-value data on NEAR Protocol. No API key required."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://fastdata.up.railway.app" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="NEAR Garden" />
+    <meta
+      name="twitter:description"
+      content="Explore and write on-chain key-value data on NEAR Protocol. No API key required."
+    />
+    <link rel="canonical" href="https://fastdata.up.railway.app" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#127793;</text></svg>"
+    />
+    <link rel="stylesheet" href="/style.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "near-kit": "https://esm.sh/near-kit@0.11.0",
+          "@hot-labs/near-connect": "https://esm.sh/@hot-labs/near-connect@0.9.0"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <header>
+      <div class="header-left">
+        <h1 class="logo"><a href="/" id="home-link">NEAR Garden</a></h1>
+        <span class="tag">Powered by FastNEAR</span>
+      </div>
+      <nav>
+        <a href="/docs" class="nav-link">API Docs</a>
+        <a
+          href="https://github.com/MultiAgency/fastkv-server"
+          class="nav-link"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="GitHub"
+          ><svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor">
+            <path
+              d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"
+            /></svg
+        ></a>
+        <span id="wallet-area" class="wallet-area"></span>
+      </nav>
+    </header>
+
+    <main>
+      <div class="controls">
+        <div class="field-rows">
+          <div class="contract-row" id="row-contract">
+            <label for="contract-input" class="label">contract</label>
+            <input
+              id="contract-input"
+              type="text"
+              placeholder="contextual.near"
+              spellcheck="false"
+            />
+          </div>
+          <button
+            type="button"
+            id="swap-btn"
+            class="swap-btn"
+            title="Swap grouping order"
+          >
+            &#8645;
+          </button>
+          <div class="contract-row" id="row-account">
+            <label for="account-input" class="label">account</label>
+            <input
+              id="account-input"
+              type="text"
+              placeholder="root.near"
+              spellcheck="false"
+            />
+          </div>
+        </div>
+        <form id="explore-form" class="search-row">
+          <input
+            id="query-input"
+            type="text"
+            placeholder="key"
+            spellcheck="false"
+          />
+          <button type="submit" id="explore-btn">explore</button>
+        </form>
+      </div>
+
+      <div id="breadcrumb" class="breadcrumb"></div>
+
+      <div id="error-bar" class="error-bar" hidden aria-live="polite">
+        <span id="error-msg"></span>
+        <button type="button" id="retry-btn">retry_</button>
+      </div>
+
+      <div id="content" class="content">
+        <div id="tree-panel" class="panel tree-panel">
+          <div id="tree" role="tree"></div>
+        </div>
+        <div id="detail-panel" class="panel detail-panel" hidden>
+          <div id="detail-path" class="detail-path"></div>
+          <pre id="detail-value" class="detail-value"></pre>
+          <div id="detail-meta" class="detail-meta"></div>
+        </div>
+      </div>
+
+      <!-- Write panel -->
+      <div id="write-panel" class="panel write-panel" hidden>
+        <div id="write-connect-prompt" class="write-connect-prompt">
+          <div>connect a NEAR wallet to write data on-chain</div>
+          <button type="button" id="connect-wallet-btn">connect wallet</button>
+        </div>
+        <div class="write-heading">save data</div>
+
+        <div id="write-single">
+          <div class="write-field">
+            <label for="write-key" class="write-label">key</label>
+            <input
+              id="write-key"
+              type="text"
+              placeholder="my/data/key"
+              spellcheck="false"
+            />
+          </div>
+          <div class="write-field">
+            <label for="write-value" class="write-label">value</label>
+            <textarea
+              id="write-value"
+              rows="6"
+              spellcheck="false"
+              placeholder="any string value"
+            ></textarea>
+          </div>
+        </div>
+
+        <button type="button" id="write-btn" class="write-btn">save</button>
+        <div id="write-status" class="write-status" aria-live="polite"></div>
+      </div>
+    </main>
+
+    <footer>
+      <p>
+        NEAR Garden is a query API for on-chain key-value storage, built using
+        <a href="https://hackmd.io/@fastnear/__fastdata">FastData</a>. Powered
+        by <a href="https://github.com/fastnear/fastdata-indexer">FastNEAR</a>.
+      </p>
+    </footer>
+
+    <script src="/app.js"></script>
+    <script type="module" src="/wallet.js"></script>
+  </body>
+</html>

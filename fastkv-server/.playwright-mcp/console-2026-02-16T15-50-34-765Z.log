@@ -1,0 +1,3 @@
+[  161370ms] [ERROR] Failed to load resource: the server responded with a status of 400 (Bad Request) @ http://localhost:3001/v1/kv/get?accountId=&contractId=&key=graph%2Ffollow%2Fhack.near&value_format=json:0
+[  161370ms] [ERROR] Failed to load detail for graph/follow/hack.near: Error: kvGet: 400
+    at kvGet (http://localhost:3001/app.js:173:22) @ http://localhost:3001/app.js:1063
