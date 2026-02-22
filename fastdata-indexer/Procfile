@@ -1,0 +1,3 @@
+main-indexer: ./target/release/main-indexer
+kv-sub-indexer: ./target/release/kv-sub-indexer
+fastfs-sub-indexer: ./target/release/fastfs-sub-indexer

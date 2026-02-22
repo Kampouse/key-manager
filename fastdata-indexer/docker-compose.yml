@@ -1,0 +1,74 @@
+version: '3.8'
+
+services:
+  # ScyllaDB - Required database
+  scylladb:
+    image: scylladb/scylla:latest
+    container_name: fastdata-scylladb
+    ports:
+      - "9042:9042"
+    command: --smp 1 --memory 1G --overprovisioned 1 --developer-mode 1
+    volumes:
+      - scylla_data:/var/lib/scylla
+    healthcheck:
+      test: ["CMD", "cqlsh", "-e", "describe keyspaces"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+
+  # Main indexer - Fetches blocks from NEAR
+  main-indexer:
+    build:
+      context: .
+      dockerfile: Dockerfile.main-indexer
+    container_name: fastdata-main-indexer
+    env_file:
+      - .env
+    depends_on:
+      scylladb:
+        condition: service_healthy
+    restart: unless-stopped
+    environment:
+      - SCYLLA_URL=scylladb:9042
+      - SCYLLA_USERNAME=
+      - SCYLLA_PASSWORD=
+
+  # KV sub-indexer - Processes KV entries
+  kv-sub-indexer:
+    build:
+      context: .
+      dockerfile: Dockerfile.kv-sub-indexer
+    container_name: fastdata-kv-sub-indexer
+    env_file:
+      - .env
+    depends_on:
+      - main-indexer
+      - scylladb
+    restart: unless-stopped
+    environment:
+      - SCYLLA_URL=scylladb:9042
+      - SCYLLA_USERNAME=
+      - SCYLLA_PASSWORD=
+
+  # FastFS sub-indexer - Processes file uploads
+  fastfs-sub-indexer:
+    build:
+      context: .
+      dockerfile: Dockerfile.fastfs-sub-indexer
+    container_name: fastdata-fastfs-sub-indexer
+    env_file:
+      - .env
+    depends_on:
+      - main-indexer
+      - scylladb
+    restart: unless-stopped
+    environment:
+      - SCYLLA_URL=scylladb:9042
+      - SCYLLA_USERNAME=
+      - SCYLLA_PASSWORD=
+
+volumes:
+  scylla_data:
+
+# For Railway deployment, use separate services instead of docker-compose
+# Each indexer should be deployed as its own Railway service
