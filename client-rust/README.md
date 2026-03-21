@@ -95,7 +95,7 @@ Values are encrypted with **AES-256-GCM**:
 - ✓ TEE operator (never sees keys)
 
 ### Trade-offs
-- ⚠ Keys exist in browser memory (XSS risk)
+- ⚠ Keys exist in process memory (compromise risk)
 - ⚠ No forward secrecy if key compromised
 
 ## Testing
