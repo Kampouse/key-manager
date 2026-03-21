@@ -3,252 +3,229 @@ import Link from 'next/link'
 export default function Home() {
   return (
     <div className="min-h-screen">
-      {/* Hero Section */}
-      <section className="relative overflow-hidden py-20 px-4">
-        <div className="absolute inset-0 bg-gradient-to-br from-secure-accent/10 via-transparent to-secure-green/10" />
-        <div className="absolute inset-0">
-          <div className="absolute top-20 left-10 w-72 h-72 bg-secure-accent/10 rounded-full blur-3xl" />
-          <div className="absolute bottom-20 right-10 w-96 h-96 bg-secure-green/10 rounded-full blur-3xl" />
-        </div>
+      {/* Hero */}
+      <section className="relative py-24 px-4">
+        <div className="absolute inset-0 bg-gradient-to-b from-secure-accent/5 to-transparent" />
         
-        <div className="relative max-w-7xl mx-auto text-center">
-          <div className="inline-flex items-center space-x-2 px-4 py-2 bg-secure-accent/10 border border-secure-accent/30 rounded-full mb-8">
-            <span className="w-2 h-2 bg-secure-green rounded-full animate-pulse" />
-            <span className="text-secure-accent text-sm font-mono">TEE-Powered Encryption</span>
+        <div className="relative max-w-5xl mx-auto">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-12 h-12 bg-gradient-to-br from-secure-accent to-secure-green rounded-lg flex items-center justify-center">
+              <svg className="w-7 h-7 text-secure-dark" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              </svg>
+            </div>
+            <span className="text-sm font-mono text-secure-accent">TEE-Based Encryption</span>
           </div>
-          
-          <h1 className="text-5xl md:text-7xl font-bold mb-6">
-            <span className="text-gradient">Nobody Knows the Key,</span>
+
+          <h1 className="text-5xl md:text-6xl font-bold mb-6 leading-tight">
+            Keys derived in hardware.
             <br />
-            <span className="text-secure-light">Not Even You</span>
+            <span className="text-secure-light/60">Nobody knows them—not even you.</span>
           </h1>
-          
-          <p className="text-xl md:text-2xl text-secure-light/70 max-w-3xl mx-auto mb-10">
-            TEE-based encrypted key-value storage with CKD (Confidential Key Derivation). 
-            Hardware-backed security for your most sensitive data.
+
+          <p className="text-xl text-secure-light/70 max-w-2xl mb-8">
+            Encrypted key-value storage where keys are derived inside a TEE using CKD. 
+            Your data is encrypted client-side with AES-256-GCM before it ever leaves your browser.
           </p>
-          
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+
+          <div className="flex gap-4">
             <Link 
               href="/docs/overview"
-              className="px-8 py-4 bg-secure-accent text-secure-dark font-semibold rounded-lg hover:bg-secure-accent/90 transition-all transform hover:scale-105 glow-box"
+              className="px-6 py-3 bg-secure-accent text-secure-dark font-medium rounded-lg hover:bg-secure-accent/90 transition-all"
             >
-              Get Started
+              Documentation
             </Link>
             <a 
               href="https://github.com/Kampouse/key-manager"
               target="_blank"
               rel="noopener noreferrer"
-              className="px-8 py-4 bg-secure-gray text-secure-light font-semibold rounded-lg border border-secure-accent/30 hover:border-secure-accent transition-all"
+              className="px-6 py-3 bg-secure-gray text-secure-light font-medium rounded-lg border border-secure-accent/30 hover:border-secure-accent transition-all flex items-center gap-2"
             >
-              View on GitHub
+              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+              </svg>
+              GitHub
             </a>
           </div>
         </div>
       </section>
 
-      {/* Features Grid */}
-      <section className="py-20 px-4 bg-secure-darker/50">
-        <div className="max-w-7xl mx-auto">
-          <h2 className="text-3xl md:text-4xl font-bold text-center mb-12 text-gradient">
-            Security-First Architecture
-          </h2>
+      {/* How It Works */}
+      <section className="py-16 px-4 border-t border-secure-accent/10">
+        <div className="max-w-5xl mx-auto">
+          <h2 className="text-3xl font-bold mb-12">How it works</h2>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {/* Feature 1 */}
-            <div className="bg-secure-gray/30 border border-secure-accent/20 rounded-xl p-6 hover:border-secure-accent/50 transition-all">
-              <div className="w-12 h-12 bg-secure-accent/20 rounded-lg flex items-center justify-center mb-4">
-                <svg className="w-6 h-6 text-secure-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                </svg>
-              </div>
-              <h3 className="text-xl font-semibold text-secure-light mb-2">CKD Key Derivation</h3>
-              <p className="text-secure-light/70">
-                Keys derived from hardware seed inside TEE. Deterministic, secure, and nobody can access them.
+          <div className="grid md:grid-cols-3 gap-8">
+            <div>
+              <div className="text-4xl font-mono text-secure-accent mb-3">01</div>
+              <h3 className="text-xl font-semibold mb-2">Derive Key in TEE</h3>
+              <p className="text-secure-light/60">
+                Keys are derived from a hardware seed using CKD inside OutLayer's TEE. 
+                They're wrapped with your public key before leaving the enclave.
               </p>
             </div>
 
-            {/* Feature 2 */}
-            <div className="bg-secure-gray/30 border border-secure-accent/20 rounded-xl p-6 hover:border-secure-accent/50 transition-all">
-              <div className="w-12 h-12 bg-secure-green/20 rounded-lg flex items-center justify-center mb-4">
-                <svg className="w-6 h-6 text-secure-green" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                </svg>
-              </div>
-              <h3 className="text-xl font-semibold text-secure-light mb-2">AES-256-GCM Encryption</h3>
-              <p className="text-secure-light/70">
-                Military-grade authenticated encryption with 256-bit keys and 128-bit authentication tags.
+            <div>
+              <div className="text-4xl font-mono text-secure-green mb-3">02</div>
+              <h3 className="text-xl font-semibold mb-2">Encrypt Client-Side</h3>
+              <p className="text-secure-light/60">
+                Your browser encrypts data with AES-256-GCM before sending it anywhere. 
+                Network requests only contain ciphertext.
               </p>
             </div>
 
-            {/* Feature 3 */}
-            <div className="bg-secure-gray/30 border border-secure-accent/20 rounded-xl p-6 hover:border-secure-accent/50 transition-all">
-              <div className="w-12 h-12 bg-secure-purple/20 rounded-lg flex items-center justify-center mb-4">
-                <svg className="w-6 h-6 text-secure-purple" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                </svg>
-              </div>
-              <h3 className="text-xl font-semibold text-secure-light mb-2">Group-Based Access</h3>
-              <p className="text-secure-light/70">
-                Fine-grained permissions with user isolation. <code className="text-secure-accent">user.near/private</code> only accessible by owner.
-              </p>
-            </div>
-
-            {/* Feature 4 */}
-            <div className="bg-secure-gray/30 border border-secure-accent/20 rounded-xl p-6 hover:border-secure-accent/50 transition-all">
-              <div className="w-12 h-12 bg-secure-orange/20 rounded-lg flex items-center justify-center mb-4">
-                <svg className="w-6 h-6 text-secure-orange" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </div>
-              <h3 className="text-xl font-semibold text-secure-light mb-2">Attestation</h3>
-              <p className="text-secure-light/70">
-                Every response includes cryptographic proof that code executed inside genuine TEE hardware.
-              </p>
-            </div>
-
-            {/* Feature 5 */}
-            <div className="bg-secure-gray/30 border border-secure-accent/20 rounded-xl p-6 hover:border-secure-accent/50 transition-all">
-              <div className="w-12 h-12 bg-secure-red/20 rounded-lg flex items-center justify-center mb-4">
-                <svg className="w-6 h-6 text-secure-red" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                </svg>
-              </div>
-              <h3 className="text-xl font-semibold text-secure-light mb-2">Client-Side Security</h3>
-              <p className="text-secure-light/70">
-                Encryption happens client-side to protect data in transit. Network requests are always ciphertext-only.
-              </p>
-            </div>
-
-            {/* Feature 6 */}
-            <div className="bg-secure-gray/30 border border-secure-accent/20 rounded-xl p-6 hover:border-secure-accent/50 transition-all">
-              <div className="w-12 h-12 bg-secure-accent/20 rounded-lg flex items-center justify-center mb-4">
-                <svg className="w-6 h-6 text-secure-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                </svg>
-              </div>
-              <h3 className="text-xl font-semibold text-secure-light mb-2">High Performance</h3>
-              <p className="text-secure-light/70">
-                First call ~1.2s, cached calls ~0.9s. Cost-effective at ~$0.005 per cached operation.
+            <div>
+              <div className="text-4xl font-mono text-secure-purple mb-3">03</div>
+              <h3 className="text-xl font-semibold mb-2">Store Encrypted</h3>
+              <p className="text-secure-light/60">
+                Encrypted data goes to FastKV or blockchain storage. 
+                Neither storage provider nor TEE operator ever sees your plaintext.
               </p>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Use Cases */}
-      <section className="py-20 px-4">
-        <div className="max-w-7xl mx-auto">
-          <h2 className="text-3xl md:text-4xl font-bold text-center mb-12 text-gradient">
-            Use Cases
-          </h2>
+      {/* Key Features */}
+      <section className="py-16 px-4 border-t border-secure-accent/10">
+        <div className="max-w-5xl mx-auto">
+          <h2 className="text-3xl font-bold mb-12">Key features</h2>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            {/* Use Case 1 */}
-            <div className="bg-secure-gray/20 border border-secure-accent/20 rounded-xl p-8">
-              <h3 className="text-2xl font-semibold text-secure-light mb-4 flex items-center">
-                <span className="text-3xl mr-3">🔐</span>
-                Encrypted User Profiles
+          <div className="grid md:grid-cols-2 gap-6">
+            <div className="bg-secure-gray/20 border border-secure-accent/10 rounded-lg p-6">
+              <h3 className="font-semibold mb-2 flex items-center gap-2">
+                <span className="text-secure-green">✓</span>
+                Hardware-backed keys
               </h3>
-              <p className="text-secure-light/70 mb-6">
-                GDPR-friendly user data storage. Encrypt sensitive user information with user-controlled keys.
+              <p className="text-secure-light/60 text-sm">
+                CKD derives keys from a TEE-protected seed. Keys never exist outside the enclave in plaintext.
               </p>
-              <pre className="bg-secure-darker rounded-lg p-4 overflow-x-auto">
-                <code className="text-sm text-secure-light">
-{`await kv.set('profile', {
-  name: 'Alice',
-  email: 'alice@example.com',
-  ssn: '123-45-6789'
-});`}
-                </code>
-              </pre>
             </div>
 
-            {/* Use Case 2 */}
-            <div className="bg-secure-gray/20 border border-secure-accent/20 rounded-xl p-8">
-              <h3 className="text-2xl font-semibold text-secure-light mb-4 flex items-center">
-                <span className="text-3xl mr-3">👥</span>
-                Team Secrets
+            <div className="bg-secure-gray/20 border border-secure-accent/10 rounded-lg p-6">
+              <h3 className="font-semibold mb-2 flex items-center gap-2">
+                <span className="text-secure-green">✓</span>
+                Client-side encryption
               </h3>
-              <p className="text-secure-light/70 mb-6">
-                Share encrypted secrets among team members with group-based access control.
+              <p className="text-secure-light/60 text-sm">
+                Data is encrypted in your browser before being sent. Network observers only see ciphertext.
               </p>
-              <pre className="bg-secure-darker rounded-lg p-4 overflow-x-auto">
-                <code className="text-sm text-secure-light">
-{`// Only team members can access
-await kv.set('team/api-key', 
-  'secret-key-123',
-  { group: 'team.near/developers' }
-);`}
-                </code>
-              </pre>
             </div>
 
-            {/* Use Case 3 */}
-            <div className="bg-secure-gray/20 border border-secure-accent/20 rounded-xl p-8">
-              <h3 className="text-2xl font-semibold text-secure-light mb-4 flex items-center">
-                <span className="text-3xl mr-3">💰</span>
-                TEE Wallet
+            <div className="bg-secure-gray/20 border border-secure-accent/10 rounded-lg p-6">
+              <h3 className="font-semibold mb-2 flex items-center gap-2">
+                <span className="text-secure-green">✓</span>
+                Group-based access
               </h3>
-              <p className="text-secure-light/70 mb-6">
-                Store private keys securely. Keys never leave the secure enclave during derivation.
+              <p className="text-secure-light/60 text-sm">
+                <code className="text-secure-accent text-xs">user.near/private</code> only accessible by that user. 
+                Fine-grained permissions.
               </p>
-              <pre className="bg-secure-darker rounded-lg p-4 overflow-x-auto">
-                <code className="text-sm text-secure-light">
-{`// Private keys encrypted at rest
-await kv.set('wallet/private-key', 
-  privateKey,
-  { group: 'user.near/wallet' }
-);`}
-                </code>
-              </pre>
             </div>
 
-            {/* Use Case 4 */}
-            <div className="bg-secure-gray/20 border border-secure-accent/20 rounded-xl p-8">
-              <h3 className="text-2xl font-semibold text-secure-light mb-4 flex items-center">
-                <span className="text-3xl mr-3">📊</span>
-                Encrypted Key-Value Storage
+            <div className="bg-secure-gray/20 border border-secure-accent/10 rounded-lg p-6">
+              <h3 className="font-semibold mb-2 flex items-center gap-2">
+                <span className="text-secure-green">✓</span>
+                Attestation
               </h3>
-              <p className="text-secure-light/70 mb-6">
-                General-purpose encrypted storage for any sensitive data.
+              <p className="text-secure-light/60 text-sm">
+                Every response includes proof that key derivation happened inside genuine TEE hardware.
               </p>
-              <pre className="bg-secure-darker rounded-lg p-4 overflow-x-auto">
-                <code className="text-sm text-secure-light">
-{`// Any data you need to encrypt
-await kv.set('any-data', 
-  sensitiveInformation,
-  { group: 'user.near/private' }
-);`}
-                </code>
-              </pre>
             </div>
           </div>
         </div>
       </section>
 
-      {/* CTA Section */}
-      <section className="py-20 px-4 bg-gradient-to-br from-secure-accent/10 via-transparent to-secure-green/10">
-        <div className="max-w-4xl mx-auto text-center">
-          <h2 className="text-3xl md:text-4xl font-bold mb-6 text-secure-light">
-            Ready to Secure Your Data?
-          </h2>
-          <p className="text-xl text-secure-light/70 mb-10">
-            Start encrypting with hardware-backed security today.
-          </p>
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Link 
-              href="/docs/overview"
-              className="px-8 py-4 bg-secure-accent text-secure-dark font-semibold rounded-lg hover:bg-secure-accent/90 transition-all transform hover:scale-105"
-            >
-              Read the Docs
-            </Link>
+      {/* Example */}
+      <section className="py-16 px-4 border-t border-secure-accent/10">
+        <div className="max-w-5xl mx-auto">
+          <h2 className="text-3xl font-bold mb-12">Example usage</h2>
+          
+          <div className="bg-secure-darker border border-secure-accent/20 rounded-lg p-6">
+            <div className="flex items-center gap-2 mb-4 text-sm text-secure-light/50">
+              <span className="w-3 h-3 rounded-full bg-secure-red"></span>
+              <span className="w-3 h-3 rounded-full bg-secure-orange"></span>
+              <span className="w-3 h-3 rounded-full bg-secure-green"></span>
+              <span className="ml-2 font-mono">PrivateKV.ts</span>
+            </div>
+            <pre className="overflow-x-auto text-sm">
+              <code className="text-secure-light">
+{`import { PrivateKV, FastKVAdapter, OutLayerAdapter } from 'near-fastkv-encrypted';
+
+const kv = new PrivateKV({
+  accountId: 'your-account.near',
+  storage: new FastKVAdapter({
+    apiUrl: 'https://your-fastkv-server.com',
+    accountId: 'your-account.near',
+  }),
+  tee: new OutLayerAdapter({
+    network: 'mainnet',
+    signTransaction: async (tx) => { /* ... */ },
+  }),
+});
+
+// Encrypt and store
+await kv.set('api-key', 'sk_live_xxxxx');
+
+// Retrieve and decrypt
+const apiKey = await kv.get('api-key');`}
+              </code>
+            </pre>
+          </div>
+        </div>
+      </section>
+
+      {/* Security Note */}
+      <section className="py-16 px-4 border-t border-secure-accent/10">
+        <div className="max-w-5xl mx-auto">
+          <div className="bg-secure-orange/5 border border-secure-orange/20 rounded-lg p-8">
+            <h3 className="font-semibold text-secure-orange mb-3 flex items-center gap-2">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              Security trade-offs
+            </h3>
+            <p className="text-secure-light/70 mb-4">
+              Encryption happens client-side because network requests are public. This means:
+            </p>
+            <ul className="text-secure-light/70 space-y-2 text-sm">
+              <li>✓ Network observers only see ciphertext</li>
+              <li>✓ Storage providers never see plaintext</li>
+              <li>⚠ Keys exist in browser memory (XSS risk)</li>
+              <li>⚠ No forward secrecy if key is compromised</li>
+            </ul>
             <Link 
               href="/docs/security"
-              className="px-8 py-4 bg-secure-gray text-secure-light font-semibold rounded-lg border border-secure-accent/30 hover:border-secure-accent transition-all"
+              className="inline-block mt-4 text-secure-accent hover:underline text-sm"
             >
-              Security Model
+              Read the security model →
             </Link>
+          </div>
+        </div>
+      </section>
+
+      {/* CTA */}
+      <section className="py-16 px-4 border-t border-secure-accent/10">
+        <div className="max-w-5xl mx-auto text-center">
+          <h2 className="text-3xl font-bold mb-4">Ready to secure your data?</h2>
+          <p className="text-secure-light/60 mb-8">
+            Start using hardware-backed encryption today.
+          </p>
+          <div className="flex gap-4 justify-center">
+            <Link 
+              href="/docs/overview"
+              className="px-6 py-3 bg-secure-accent text-secure-dark font-medium rounded-lg hover:bg-secure-accent/90 transition-all"
+            >
+              Get started
+            </Link>
+            <a 
+              href="https://github.com/Kampouse/key-manager"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-6 py-3 bg-secure-gray text-secure-light font-medium rounded-lg border border-secure-accent/30 hover:border-secure-accent transition-all"
+            >
+              View source
+            </a>
           </div>
         </div>
       </section>
